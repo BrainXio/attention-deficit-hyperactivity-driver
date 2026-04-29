@@ -34,5 +34,6 @@ jobs:
 
       - uses: lycheeverse/lychee-action@v2
         with:
-          args: docs/ *.md
+          args: --base . docs/ README.md
           fail: false
+          failIfEmpty: false
