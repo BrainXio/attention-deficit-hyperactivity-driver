@@ -256,6 +256,8 @@ def elect_main() -> ClaimResult:
     active: dict[str, dict[str, Any]] = {}
     for msg in messages:
         sid = msg.get("session_id")
+        if not isinstance(sid, str):
+            continue
         if msg.get("type") == "signin":
             active[sid] = msg
         elif msg.get("type") == "signout":

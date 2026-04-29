@@ -31,4 +31,4 @@ class BusMessage(BaseModel):
         "response",
     ]
     topic: str
-    payload: dict = Field(default_factory=dict)
+    payload: dict[str, object] = Field(default_factory=dict)

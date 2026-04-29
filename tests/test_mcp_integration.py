@@ -61,7 +61,8 @@ async def test_adhd_signin(temp_bus: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_adhd_signin_main_blocked_without_env(temp_bus: Path) -> None:
-    result = await adhd_signin(role="main")
+    with patch.dict(os.environ, {}, clear=True):
+        result = await adhd_signin(role="main")
     assert "ERROR" in result
     assert "blocked" in result.lower()
 
@@ -117,7 +118,8 @@ async def test_adhd_main_check_no_main(temp_bus: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_adhd_main_claim_blocked_without_env(temp_bus: Path) -> None:
-    result = await adhd_main_claim()
+    with patch.dict(os.environ, {}, clear=True):
+        result = await adhd_main_claim()
     assert "ERROR" in result
     assert "blocked" in result.lower()
 

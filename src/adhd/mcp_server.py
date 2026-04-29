@@ -128,7 +128,7 @@ async def adhd_post(type: str, topic: str, payload: str = "{}") -> str:
     if type in PROTECTED_TYPES:
         return f"ERROR: Message type '{type}' is protected. Use the dedicated tool instead."
     try:
-        payload_dict: dict = json.loads(payload)
+        payload_dict: dict[str, object] = json.loads(payload)
     except json.JSONDecodeError as exc:
         return f"ERROR: Invalid JSON payload: {exc}"
     if not isinstance(payload_dict, dict):
@@ -277,7 +277,7 @@ async def adhd_start_heartbeat() -> str:
 # ---------------------------------------------------------------------------
 
 
-@atexit.register  # type: ignore[misc]
+@atexit.register
 def _cleanup() -> None:
     """Write signout when the server process exits."""
     try:

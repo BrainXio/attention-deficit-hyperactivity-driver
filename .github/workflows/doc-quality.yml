@@ -14,13 +14,11 @@ jobs:
 
       - uses: astral-sh/setup-uv@v7
 
-      - run: uv pip install mdformat mdformat-gfm --system
+      - run: uv sync
 
-      - run: mdformat --check docs/ *.md
+      - run: uv run mdformat --check docs/ *.md
 
-      - run: uv pip install yamllint --system
-
-      - run: yamllint .
+      - run: uv run yamllint .
 
       - uses: crate-ci/typos@v1.45.2
         with:
