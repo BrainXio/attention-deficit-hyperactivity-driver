@@ -1,0 +1,11 @@
+[default]
+extend-ignore-identifiers-re = [
+    "jsonl",
+    "JSONL",
+    "ADHD",
+    "adhd",
+    "nohup",
+]
+
+[default.extend-words]
+aks = "aks"
