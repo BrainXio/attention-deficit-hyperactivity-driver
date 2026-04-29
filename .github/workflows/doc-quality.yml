@@ -1,0 +1,40 @@
+name: Doc Quality
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  doc-lint:
+    name: Lint and Format Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v8
+
+      - run: uv pip install mdformat mdformat-gfm --system
+
+      - run: mdformat --check docs/ *.md
+
+      - run: uv pip install yamllint --system
+
+      - run: yamllint .
+
+      - uses: crate-ci/typos@v1.45.2
+        with:
+          config: .typos.toml
+
+  link-check:
+    name: Link Check (Informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: lycheeverse/lychee-action@v2
+        with:
+          args: docs/ *.md
+          fail: false

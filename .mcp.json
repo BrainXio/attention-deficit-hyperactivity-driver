@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "adhd": {
+      "command": "uv",
+      "args": ["--directory", ".", "run", "adhd-mcp"]
+    }
+  }
+}
