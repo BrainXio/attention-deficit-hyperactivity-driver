@@ -15,6 +15,7 @@ Every active session should maintain a heartbeat. The MCP server can manage this
 ## Rule 4: Respect Topic Filtering
 
 When reading the bus, filter by `topic` and `type`. Do not read every message. Topics:
+
 - `agent-lifecycle` — signin, signout, heartbeat
 - `coordination` — main session claims/releases
 - `agent-activity` — status, tool_use, event

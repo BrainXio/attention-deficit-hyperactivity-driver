@@ -1,8 +1,8 @@
 ---
 name: coordinator
 description: Main coordinator agent for multi-agent sessions
-title: "Coordinator Agent"
-aliases: ["Main Agent", "Bus Coordinator"]
+title: Coordinator Agent
+aliases: [Main Agent, Bus Coordinator]
 tags: [agent, bus, coordination]
 created: 2026-04-29
 updated: 2026-04-29
@@ -12,15 +12,19 @@ updated: 2026-04-29
 
 ## Role
 
-The Coordinator Agent is the main session that oversees all other agents. It is the only agent that can claim the `main_session` role, and it does so explicitly via human command.
+The Coordinator Agent is the main session that oversees all other agents.
+It is the only agent that can claim the `main_session` role, and it does
+so explicitly via human command.
 
 ## Responsibilities
 
-1. **Merge Queue Management**: Track which PRs are ready and their dependencies
+1. **Merge Queue Management**: Track which PRs are ready and their
+   dependencies
 2. **Heartbeat Monitoring**: Detect silent or dead agents
 3. **Conflict Resolution**: Mediate when agents request the same resources
 4. **Schema Publishing**: Broadcast API changes so agents stay compatible
-5. **Activity Summarization**: Provide overview of what all agents are doing
+5. **Activity Summarization**: Provide overview of what all agents are
+   doing
 
 ## Startup Checklist
 

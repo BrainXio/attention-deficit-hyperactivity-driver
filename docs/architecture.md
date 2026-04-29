@@ -54,13 +54,13 @@ repo-root/
 
 ## Environment Variables
 
-| Variable | Purpose |
-|---|---|
-| `ADHD_BUS_PATH` | Absolute path to bus file (overrides all derivation) |
+| Variable             | Purpose                                                    |
+| -------------------- | ---------------------------------------------------------- |
+| `ADHD_BUS_PATH`      | Absolute path to bus file (overrides all derivation)       |
 | `ADHD_BUS_REPO_SLUG` | Repo key in `.brainxio/adhd/` (default: git toplevel name) |
-| `ADHD_SESSION_ID` | Fixed session identifier (default: random 8-char UUID) |
-| `ADHD_AGENT_ID` | Agent identifier (default: `agent-{session_id}`) |
-| `ADHD_ALLOW_MAIN` | Set to `1` to permit main session claims |
+| `ADHD_SESSION_ID`    | Fixed session identifier (default: random 8-char UUID)     |
+| `ADHD_AGENT_ID`      | Agent identifier (default: `agent-{session_id}`)           |
+| `ADHD_ALLOW_MAIN`    | Set to `1` to permit main session claims                   |
 
 ### Cross-Repo Coordination
 
@@ -78,20 +78,20 @@ The sole interface is `adhd-mcp`, a FastMCP stdio server. All agent interactions
 
 ### Tools
 
-| Tool | Purpose |
-|---|---|
-| `adhd_signin` | Register session on the bus |
-| `adhd_signout` | Deregister session |
-| `adhd_read` | Read/filter messages |
-| `adhd_post` | Post a generic message |
-| `adhd_send` | Send message to specific agent |
-| `adhd_main_check` | Check current main session |
-| `adhd_main_claim` | Claim coordinator role (human-only) |
-| `adhd_main_release` | Release coordinator role |
-| `adhd_main_elect` | Auto-elect oldest active session |
-| `adhd_validate` | Validate bus integrity |
-| `adhd_archive` | Archive old messages |
-| `adhd_resolve` | Print canonical bus path |
+| Tool                | Purpose                             |
+| ------------------- | ----------------------------------- |
+| `adhd_signin`       | Register session on the bus         |
+| `adhd_signout`      | Deregister session                  |
+| `adhd_read`         | Read/filter messages                |
+| `adhd_post`         | Post a generic message              |
+| `adhd_send`         | Send message to specific agent      |
+| `adhd_main_check`   | Check current main session          |
+| `adhd_main_claim`   | Claim coordinator role (human-only) |
+| `adhd_main_release` | Release coordinator role            |
+| `adhd_main_elect`   | Auto-elect oldest active session    |
+| `adhd_validate`     | Validate bus integrity              |
+| `adhd_archive`      | Archive old messages                |
+| `adhd_resolve`      | Print canonical bus path            |
 
 ## Message Flow
 

@@ -111,9 +111,9 @@ The bus lives at `~/.brainxio/adhd/{repo-slug}/bus.jsonl`. This centralizes coor
 
 ### Environment Variables
 
-| Variable | Purpose |
-|---|---|
-| `ADHD_BUS_PATH` | Absolute path override for advanced use |
+| Variable             | Purpose                                     |
+| -------------------- | ------------------------------------------- |
+| `ADHD_BUS_PATH`      | Absolute path override for advanced use     |
 | `ADHD_BUS_REPO_SLUG` | Join a specific repo's bus from any session |
 
 ### Cross-Repo Coordination

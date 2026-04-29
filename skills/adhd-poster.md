@@ -1,9 +1,9 @@
 ---
 name: adhd-poster
 description: Post a message to the ADHD coordination bus
-argument-hint: "--type TYPE --topic TOPIC [--payload JSON]"
-title: "ADHD Poster"
-aliases: ["Post Message", "Send Update", "ADHD Post"]
+argument-hint: --type TYPE --topic TOPIC [--payload JSON]
+title: ADHD Poster
+aliases: [Post Message, Send Update, ADHD Post]
 tags: [skill, adhd, coordination]
 created: 2026-04-29
 updated: 2026-04-29
@@ -15,7 +15,8 @@ Post a message to the ADHD multi-agent coordination bus.
 
 ## Behavior
 
-Append a JSON message to the shared bus file. All agents in the same repository read from this file.
+Append a JSON message to the shared bus file. All agents in the same
+repository read from this file.
 
 ## MCP Tool
 
@@ -25,15 +26,16 @@ adhd_post(type="status", topic="agent-activity", payload='{"state":"working","ac
 
 ## Parameters
 
-| Parameter | Description | Required |
-|-----------|-------------|----------|
-| `type` | Message type | Yes |
-| `topic` | Message topic | Yes |
+| Parameter | Description         | Required              |
+| --------- | ------------------- | --------------------- |
+| `type`    | Message type        | Yes                   |
+| `topic`   | Message topic       | Yes                   |
 | `payload` | JSON string payload | No (defaults to `{}`) |
 
 ## Examples
 
 Report status:
+
 ```
 adhd_post(
     type="status",
@@ -43,6 +45,7 @@ adhd_post(
 ```
 
 Log tool use:
+
 ```
 adhd_post(
     type="tool_use",
@@ -52,6 +55,7 @@ adhd_post(
 ```
 
 Declare schema:
+
 ```
 adhd_post(
     type="schema",

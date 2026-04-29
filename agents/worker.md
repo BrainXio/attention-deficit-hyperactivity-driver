@@ -1,8 +1,8 @@
 ---
 name: worker
 description: Standard worker agent in a multi-agent session
-title: "Worker Agent"
-aliases: ["Feature Agent", "Worktree Agent"]
+title: Worker Agent
+aliases: [Feature Agent, Worktree Agent]
 tags: [agent, bus, coordination]
 created: 2026-04-29
 updated: 2026-04-29
@@ -12,7 +12,9 @@ updated: 2026-04-29
 
 ## Role
 
-A Worker Agent is any Claude Code session working on a feature branch or worktree. It collaborates with other workers via the bus and defers to the Coordinator Agent.
+A Worker Agent is any Claude Code session working on a feature branch or
+worktree. It collaborates with other workers via the bus and defers to
+the Coordinator Agent.
 
 ## Startup Checklist
 
