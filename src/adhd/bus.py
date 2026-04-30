@@ -21,19 +21,31 @@ def resolve() -> Path:
     1. ADHD_BUS_PATH env var (storage directory prefix, default: ~/.brainxio/adhd/)
     2. ADHD_BUS_SLUG env var (bus name, default: git toplevel basename)
     3. Full path: {ADHD_BUS_PATH}/{ADHD_BUS_SLUG}/bus.jsonl
+
+    When inside a git submodule, the parent project root is used instead of
+    the submodule directory so the bus is shared across the workspace.
     """
     base_dir = Path(os.environ.get("ADHD_BUS_PATH", "~/.brainxio/adhd")).expanduser()
 
     bus_name = os.environ.get("ADHD_BUS_SLUG")
     if not bus_name:
         try:
-            toplevel = subprocess.run(
-                ["git", "rev-parse", "--show-toplevel"],
+            superproject = subprocess.run(
+                ["git", "rev-parse", "--show-superproject-working-tree"],
                 capture_output=True,
                 text=True,
                 check=True,
             ).stdout.strip()
-            bus_name = Path(toplevel).name
+            if superproject:
+                bus_name = Path(superproject).name
+            else:
+                toplevel = subprocess.run(
+                    ["git", "rev-parse", "--show-toplevel"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout.strip()
+                bus_name = Path(toplevel).name
         except subprocess.CalledProcessError:
             bus_name = "default"
 
@@ -166,6 +178,11 @@ def validate(line: str) -> tuple[bool, str]:
         "tool_use",
         "request",
         "response",
+        "hitl_claim",
+        "hitl_release",
+        "hitl_rpe",
+        "hitl_approve",
+        "hitl_split",
     }
     if obj["type"] not in valid_types:
         return False, f"Invalid type: {obj['type']}"
@@ -402,6 +419,262 @@ def check_mcp_change_status() -> list[dict[str, object]]:
             in_flux.pop(server, None)
 
     return list(in_flux.values())
+
+
+# ---------------------------------------------------------------------------
+# Merge-queue claim protocol
+# ---------------------------------------------------------------------------
+
+_CLAIM_TTL = timedelta(minutes=5)
+
+
+def claim_pr(pr_number: int) -> str:
+    """Claim a PR for merging. Other supporters skip claimed PRs.
+
+    Claims auto-expire after 5 minutes to handle crashed agents.
+    """
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": "event",
+            "topic": "merge-queue",
+            "payload": {
+                "pr": pr_number,
+                "action": "claim",
+                "session_id": session_id(),
+            },
+        }
+    )
+    return f"Claimed PR #{pr_number} for merging."
+
+
+def release_pr(pr_number: int) -> str:
+    """Release a previously claimed PR."""
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": "event",
+            "topic": "merge-queue",
+            "payload": {
+                "pr": pr_number,
+                "action": "release",
+                "session_id": session_id(),
+            },
+        }
+    )
+    return f"Released claim on PR #{pr_number}."
+
+
+def get_active_claims() -> list[dict[str, object]]:
+    """Return list of PRs with active claims (not released, not stale).
+
+    A claim is stale when its timestamp is more than 5 minutes old.
+    """
+    messages = read_messages(topic_filter="merge-queue", limit=500)
+    claims: dict[int, dict[str, object]] = {}
+    cutoff = datetime.now(UTC) - _CLAIM_TTL
+
+    for msg in messages:
+        payload = msg.get("payload") or {}
+        pr = payload.get("pr")
+        if not isinstance(pr, int):
+            continue
+        action = payload.get("action")
+        if action == "claim":
+            ts_str = msg.get("timestamp", "")
+            try:
+                ts = datetime.fromisoformat(ts_str)
+            except ValueError:
+                continue
+            if ts > cutoff:
+                claims[pr] = {
+                    "pr": pr,
+                    "session_id": msg.get("session_id", ""),
+                    "agent_id": msg.get("agent_id", ""),
+                    "timestamp": ts_str,
+                }
+        elif action == "release":
+            claims.pop(pr, None)
+
+    return list(claims.values())
+
+
+# ---------------------------------------------------------------------------
+# Human-In-The-Loop (HITL) protocol
+# ---------------------------------------------------------------------------
+
+_HITL_DECISION_TTL = timedelta(minutes=30)
+
+
+def hitl_claim_decision(decision_id: str, description: str, urgency: str = "medium") -> str:
+    """Claim a pending decision for human review.
+
+    Args:
+        decision_id: Unique identifier for the decision (e.g., "pr-42-merge")
+        description: Human-readable summary of what needs deciding
+        urgency: low | medium | high (default medium)
+    """
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": "hitl_claim",
+            "topic": "hitl-decisions",
+            "payload": {
+                "decision_id": decision_id,
+                "description": description,
+                "urgency": urgency,
+                "action": "claim",
+            },
+        }
+    )
+    return f"Claimed decision '{decision_id}' for human review."
+
+
+def hitl_release_decision(decision_id: str) -> str:
+    """Release a previously claimed decision."""
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": "hitl_release",
+            "topic": "hitl-decisions",
+            "payload": {
+                "decision_id": decision_id,
+                "action": "release",
+            },
+        }
+    )
+    return f"Released claim on decision '{decision_id}'."
+
+
+def hitl_provide_rpe(decision_id: str, rpe_value: float, notes: str = "") -> str:
+    """Provide Reward Prediction Error feedback for a decision.
+
+    Args:
+        decision_id: The decision this RPE applies to
+        rpe_value: Numeric RPE (positive = better than expected, negative = worse)
+        notes: Optional human-readable context
+    """
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": "hitl_rpe",
+            "topic": "hitl-decisions",
+            "payload": {
+                "decision_id": decision_id,
+                "rpe": rpe_value,
+                "notes": notes,
+            },
+        }
+    )
+    return f"Recorded RPE {rpe_value} for decision '{decision_id}'."
+
+
+def hitl_approve_gonogo(decision_id: str, approved: bool, reason: str = "") -> str:
+    """Approve or reject a Go/NoGo action.
+
+    Args:
+        decision_id: The action under review
+        approved: True to approve, False to reject
+        reason: Optional explanation for the decision
+    """
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": "hitl_approve",
+            "topic": "hitl-decisions",
+            "payload": {
+                "decision_id": decision_id,
+                "approved": approved,
+                "reason": reason,
+            },
+        }
+    )
+    status = "approved" if approved else "rejected"
+    return f"Go/NoGo '{decision_id}' {status}."
+
+
+def hitl_split_duties(duties: list[str], target_agents: list[str]) -> str:
+    """Split or supplement supporter duties across agents.
+
+    Args:
+        duties: List of duty descriptions (e.g., ["bus-monitor", "pr-scan"])
+        target_agents: Agent IDs or "all" to broadcast
+    """
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": "hitl_split",
+            "topic": "hitl-decisions",
+            "payload": {
+                "duties": duties,
+                "target_agents": target_agents,
+            },
+        }
+    )
+    return f"Split duties {duties} across {target_agents}."
+
+
+def get_pending_decisions() -> list[dict[str, Any]]:
+    """Return decisions that are claimed but not yet resolved.
+
+    A decision is pending when it has a hitl_claim without a matching
+    hitl_release or hitl_approve for the same decision_id.
+    """
+    messages = read_messages(topic_filter="hitl-decisions", limit=500)
+    decisions: dict[str, dict[str, Any]] = {}
+    cutoff = datetime.now(UTC) - _HITL_DECISION_TTL
+
+    for msg in messages:
+        payload = msg.get("payload") or {}
+        did = payload.get("decision_id")
+        if not isinstance(did, str):
+            continue
+        msg_type = msg.get("type", "")
+        if msg_type == "hitl_claim":
+            ts_str = msg.get("timestamp", "")
+            try:
+                ts = datetime.fromisoformat(ts_str)
+            except ValueError:
+                continue
+            if ts > cutoff:
+                decisions[did] = {
+                    "decision_id": did,
+                    "description": payload.get("description", ""),
+                    "urgency": payload.get("urgency", "medium"),
+                    "claimed_by": msg.get("agent_id", ""),
+                    "timestamp": ts_str,
+                }
+        elif msg_type in {"hitl_release", "hitl_approve"}:
+            decisions.pop(did, None)
+
+    return list(decisions.values())
+
+
+def get_decision_history(decision_id: str) -> list[dict[str, Any]]:
+    """Return all bus messages for a given decision_id."""
+    messages = read_messages(topic_filter="hitl-decisions", limit=500)
+    return [msg for msg in messages if msg.get("payload", {}).get("decision_id") == decision_id]
 
 
 # ---------------------------------------------------------------------------

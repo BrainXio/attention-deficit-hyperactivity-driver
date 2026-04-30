@@ -59,8 +59,14 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
 
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
 [tool.ruff.format]
+indent-style = "space"
 quote-style = "double"
+skip-magic-trailing-comma = false
+line-ending = "lf"
 
 [tool.mypy]
 strict = true
@@ -74,6 +80,7 @@ pythonpath = ["src"]
 asyncio_mode = "auto"
 markers = [
     "integration: marks tests as integration tests",
+    "slow: marks tests as slow (deselect with '-m not slow')",
 ]
 
 [tool.coverage.run]
