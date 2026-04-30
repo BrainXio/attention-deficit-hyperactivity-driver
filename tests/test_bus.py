@@ -279,110 +279,59 @@ def test_validate_bus_invalid(temp_bus: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Main session management
+# Supporter management
 # ---------------------------------------------------------------------------
 
 
-def test_check_main_no_messages(temp_bus: Path) -> None:
-    assert bus.check_main() is None
+def test_check_supporters_empty(temp_bus: Path) -> None:
+    assert bus.check_supporters() == []
 
 
-def test_check_main_set(temp_bus: Path) -> None:
-    msg = _sample_message()
-    msg["type"] = "main_session_set"
-    msg["topic"] = "coordination"
-    msg["agent_id"] = "coordinator"
-    bus.write_message(msg)
-    assert bus.check_main() == "coordinator"
-
-
-def test_check_main_released(temp_bus: Path) -> None:
-    set_msg = _sample_message()
-    set_msg["type"] = "main_session_set"
-    set_msg["topic"] = "coordination"
-    set_msg["agent_id"] = "coordinator"
-    bus.write_message(set_msg)
-
-    rel_msg = _sample_message()
-    rel_msg["type"] = "main_session_released"
-    rel_msg["topic"] = "coordination"
-    rel_msg["agent_id"] = "coordinator"
-    bus.write_message(rel_msg)
-
-    assert bus.check_main() is None
-
-
-def test_claim_main_success(temp_bus: Path) -> None:
-    result = bus.claim_main(agent_id_str="new-main")
-    assert result.success is True
-    assert "claimed by new-main" in result.message
-
-
-def test_claim_main_blocked_by_active(temp_bus: Path) -> None:
-    ts = datetime.now(UTC).isoformat()
-
-    set_msg = _sample_message()
-    set_msg["timestamp"] = ts
-    set_msg["type"] = "main_session_set"
-    set_msg["topic"] = "coordination"
-    set_msg["agent_id"] = "existing-main"
-    bus.write_message(set_msg)
-
-    hb_msg = _sample_message()
-    hb_msg["timestamp"] = ts
-    hb_msg["type"] = "heartbeat"
-    hb_msg["topic"] = "agent-lifecycle"
-    hb_msg["agent_id"] = "existing-main"
-    bus.write_message(hb_msg)
-
-    result = bus.claim_main(agent_id_str="new-main")
-    assert result.success is False
-    assert "held by existing-main" in result.message
-
-
-def test_claim_main_allowed_after_expiry(temp_bus: Path) -> None:
-    old_ts = (datetime.now(UTC) - timedelta(minutes=30)).isoformat()
-
-    set_msg = _sample_message()
-    set_msg["timestamp"] = old_ts
-    set_msg["type"] = "main_session_set"
-    set_msg["topic"] = "coordination"
-    set_msg["agent_id"] = "old-main"
-    bus.write_message(set_msg)
-
-    hb_msg = _sample_message()
-    hb_msg["timestamp"] = old_ts
-    hb_msg["type"] = "heartbeat"
-    hb_msg["topic"] = "agent-lifecycle"
-    hb_msg["agent_id"] = "old-main"
-    bus.write_message(hb_msg)
-
-    result = bus.claim_main(agent_id_str="new-main")
-    assert result.success is True
-
-
-def test_release_main(temp_bus: Path) -> None:
-    bus.release_main(agent_id_str="coordinator")
-    msgs = bus.read_messages(type_filter="main_session_released")
-    assert len(msgs) == 1
-    assert msgs[0]["agent_id"] == "coordinator"
-
-
-def test_elect_main_no_sessions(temp_bus: Path) -> None:
-    result = bus.elect_main()
-    assert result.success is False
-    assert "No active sessions" in result.message
-
-
-def test_elect_main_success(temp_bus: Path) -> None:
+def test_check_supporters_no_flag(temp_bus: Path) -> None:
     msg = _sample_message()
     msg["type"] = "signin"
-    msg["agent_id"] = "oldest"
+    msg["payload"] = {}
+    bus.write_message(msg)
+    assert bus.check_supporters() == []
+
+
+def test_check_supporters_active(temp_bus: Path) -> None:
+    msg = _sample_message()
+    msg["type"] = "signin"
+    msg["payload"] = {"supporter": True}
+    msg["agent_id"] = "supporter-a"
     bus.write_message(msg)
 
-    result = bus.elect_main()
-    assert result.success is True
-    assert "claimed by oldest" in result.message
+    result = bus.check_supporters()
+    assert len(result) == 1
+    assert result[0]["agent_id"] == "supporter-a"
+    assert result[0]["alive"] is True
+
+
+def test_check_supporters_expired(temp_bus: Path) -> None:
+    old_ts = (datetime.now(UTC) - timedelta(minutes=30)).isoformat()
+    msg = _sample_message()
+    msg["timestamp"] = old_ts
+    msg["type"] = "signin"
+    msg["payload"] = {"supporter": True}
+    bus.write_message(msg)
+
+    assert bus.check_supporters() == []
+
+
+def test_check_supporters_signout_removed(temp_bus: Path) -> None:
+    msg = _sample_message()
+    msg["type"] = "signin"
+    msg["payload"] = {"supporter": True}
+    msg["session_id"] = "sess-s1"
+    bus.write_message(msg)
+
+    out_msg = _sample_message()
+    out_msg["type"] = "signout"
+    out_msg["session_id"] = "sess-s1"
+    bus.write_message(out_msg)
+
+    assert bus.check_supporters() == []
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +344,14 @@ def test_signin(temp_bus: Path) -> None:
     assert msg == "Signed in."
     msgs = bus.read_messages(type_filter="signin")
     assert len(msgs) == 1
+
+
+def test_signin_supporter(temp_bus: Path) -> None:
+    with patch.dict(os.environ, {"ADHD_ENABLE_SUPPORTER": "1"}):
+        msg = bus.signin()
+    assert "supporter" in msg.lower()
+    msgs = bus.read_messages(type_filter="signin")
+    assert msgs[0]["payload"]["supporter"] is True
 
 
 def test_signout(temp_bus: Path) -> None:

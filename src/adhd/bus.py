@@ -6,7 +6,6 @@ import json
 import os
 import subprocess
 import uuid
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -142,8 +141,6 @@ def validate(line: str) -> tuple[bool, str]:
         "answer",
         "event",
         "tool_use",
-        "main_session_set",
-        "main_session_released",
         "request",
         "response",
     }
@@ -171,106 +168,53 @@ def validate_bus() -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
-# Main session management
+# Supporter management
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class ClaimResult:
-    success: bool
-    message: str
-
-
-def check_main() -> str | None:
-    """Return the current main session agent_id, or None."""
-    messages = read_messages(limit=200, topic_filter="coordination")
-    for msg in reversed(messages):
-        if msg.get("type") == "main_session_set":
-            return msg.get("agent_id")
-        if msg.get("type") == "main_session_released":
-            return None
-    return None
-
-
-def get_last_heartbeat(agent: str) -> datetime | None:
-    """Return the most recent heartbeat timestamp for an agent."""
-    messages = read_messages(
-        limit=200,
-        type_filter="heartbeat",
-        agent_filter=agent,
-    )
-    if not messages:
-        return None
-    ts = messages[-1].get("timestamp", "")
+def _is_session_alive(msg: dict[str, Any]) -> bool:
+    """Check if a session's most recent activity is within the heartbeat window."""
+    ts_str = msg.get("timestamp", "")
     try:
-        return datetime.fromisoformat(ts)
+        ts = datetime.fromisoformat(ts_str)
     except ValueError:
-        return None
+        return False
+    return (datetime.now(UTC) - ts) < timedelta(minutes=20)
 
 
-def claim_main(agent_id_str: str | None = None, session_id_str: str | None = None) -> ClaimResult:
-    """Attempt to claim the main coordinator role."""
-    current_main = check_main()
-    if current_main is not None:
-        last_hb = get_last_heartbeat(current_main)
-        if last_hb and (datetime.now(UTC) - last_hb) < timedelta(minutes=20):
-            return ClaimResult(
-                False,
-                f"Main session held by {current_main}. Last heartbeat: {last_hb.isoformat()}",
-            )
+def check_supporters() -> list[dict[str, Any]]:
+    """Return active supporter sessions (signin/heartbeat with supporter=True in payload).
 
-    aid = agent_id_str or agent_id()
-    sid = session_id_str or session_id()
-    write_message(
-        {
-            "timestamp": now(),
-            "session_id": sid,
-            "agent_id": aid,
-            "branch": "main",
-            "type": "main_session_set",
-            "topic": "coordination",
-            "payload": {},
-        }
-    )
-    return ClaimResult(True, f"Main session claimed by {aid}")
-
-
-def release_main(agent_id_str: str | None = None) -> None:
-    """Release the main coordinator role."""
-    write_message(
-        {
-            "timestamp": now(),
-            "session_id": session_id(),
-            "agent_id": agent_id_str or agent_id(),
-            "branch": "main",
-            "type": "main_session_released",
-            "topic": "coordination",
-            "payload": {},
-        }
-    )
-
-
-def elect_main() -> ClaimResult:
-    """Auto-elect the oldest active session as main."""
+    A session is considered active if its most recent heartbeat or signin is
+    within the last 20 minutes.
+    """
     messages = read_messages(limit=500)
     active: dict[str, dict[str, Any]] = {}
+
     for msg in messages:
         sid = msg.get("session_id")
         if not isinstance(sid, str):
             continue
-        if msg.get("type") == "signin":
-            active[sid] = msg
-        elif msg.get("type") == "signout":
+
+        if msg.get("type") == "signout":
             active.pop(sid, None)
-        elif msg.get("type") == "heartbeat":
-            active[sid] = msg
+            continue
 
-    if not active:
-        return ClaimResult(False, "No active sessions found")
+        if msg.get("type") in {"signin", "heartbeat"}:
+            payload = msg.get("payload") or {}
+            if payload.get("supporter") is True:
+                active[sid] = msg
 
-    oldest = min(active.values(), key=lambda m: m.get("timestamp", ""))
-    agent = oldest.get("agent_id", "unknown")
-    return claim_main(agent_id_str=agent)
+    return [
+        {
+            "session_id": sid,
+            "agent_id": msg.get("agent_id", "unknown"),
+            "timestamp": msg.get("timestamp", ""),
+            "alive": _is_session_alive(msg),
+        }
+        for sid, msg in active.items()
+        if _is_session_alive(msg)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +224,10 @@ def elect_main() -> ClaimResult:
 
 def signin() -> str:
     """Write a signin message."""
+    payload: dict[str, Any] = {}
+    if os.environ.get("ADHD_ENABLE_SUPPORTER"):
+        payload["supporter"] = True
+
     write_message(
         {
             "timestamp": now(),
@@ -288,9 +236,11 @@ def signin() -> str:
             "branch": current_branch(),
             "type": "signin",
             "topic": "agent-lifecycle",
-            "payload": {},
+            "payload": payload,
         }
     )
+    if payload.get("supporter"):
+        return "Signed in as supporter."
     return "Signed in."
 
 
