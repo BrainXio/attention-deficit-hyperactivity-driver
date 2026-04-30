@@ -29,6 +29,11 @@ class BusMessage(BaseModel):
         "main_session_released",
         "request",
         "response",
+        "hitl_claim",
+        "hitl_release",
+        "hitl_rpe",
+        "hitl_approve",
+        "hitl_split",
     ]
     topic: str
     payload: dict[str, object] = Field(default_factory=dict)

@@ -86,6 +86,58 @@ def test_resolve_fallback_no_git(tmp_path: Path) -> None:
     assert result == expected
 
 
+def test_resolve_superproject(tmp_path: Path) -> None:
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    superproject = tmp_path / "workspace-root"
+    superproject.mkdir()
+
+    def _mock_run(cmd: list[str], **kwargs: Any) -> Any:
+        class _Result:
+            stdout = ""
+            returncode = 0
+
+        result = _Result()
+        if "--show-superproject-working-tree" in cmd:
+            result.stdout = str(superproject) + "\n"
+        elif "--show-toplevel" in cmd:
+            result.stdout = str(tmp_path / "adhd-submodule") + "\n"
+        return result
+
+    env = {"HOME": str(fake_home)}
+    with patch.dict(os.environ, env, clear=True):
+        with patch("subprocess.run", side_effect=_mock_run):
+            result = bus.resolve()
+    expected = fake_home / ".brainxio" / "adhd" / "workspace-root" / "bus.jsonl"
+    assert result == expected
+
+
+def test_resolve_superproject_empty_uses_toplevel(tmp_path: Path) -> None:
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    toplevel = tmp_path / "my-project"
+    toplevel.mkdir()
+
+    def _mock_run(cmd: list[str], **kwargs: Any) -> Any:
+        class _Result:
+            stdout = ""
+            returncode = 0
+
+        result = _Result()
+        if "--show-superproject-working-tree" in cmd:
+            result.stdout = "\n"  # empty → not a submodule
+        elif "--show-toplevel" in cmd:
+            result.stdout = str(toplevel) + "\n"
+        return result
+
+    env = {"HOME": str(fake_home)}
+    with patch.dict(os.environ, env, clear=True):
+        with patch("subprocess.run", side_effect=_mock_run):
+            result = bus.resolve()
+    expected = fake_home / ".brainxio" / "adhd" / "my-project" / "bus.jsonl"
+    assert result == expected
+
+
 # ---------------------------------------------------------------------------
 # Identity helpers
 # ---------------------------------------------------------------------------
@@ -509,6 +561,56 @@ def test_check_mcp_change_status_ignores_non_mcp_change(temp_bus: Path) -> None:
     """Non-mcp-change event messages are ignored by status check."""
     bus.post(type_="event", topic="other-topic", payload={"server": "asd", "action": "preparing"})
     assert bus.check_mcp_change_status() == []
+
+
+# ---------------------------------------------------------------------------
+# Merge-queue claim protocol
+# ---------------------------------------------------------------------------
+
+
+def test_claim_pr(temp_bus: Path) -> None:
+    result = bus.claim_pr(42)
+    assert "Claimed PR #42" in result
+    msgs = bus.read_messages(topic_filter="merge-queue")
+    assert len(msgs) == 1
+    assert msgs[0]["payload"]["action"] == "claim"
+
+
+def test_release_pr(temp_bus: Path) -> None:
+    bus.claim_pr(7)
+    result = bus.release_pr(7)
+    assert "Released claim" in result
+    msgs = bus.read_messages(topic_filter="merge-queue")
+    assert len(msgs) == 2
+    assert msgs[1]["payload"]["action"] == "release"
+
+
+def test_get_active_claims_empty(temp_bus: Path) -> None:
+    assert bus.get_active_claims() == []
+
+
+def test_get_active_claims_active(temp_bus: Path) -> None:
+    bus.claim_pr(99)
+    claims = bus.get_active_claims()
+    assert len(claims) == 1
+    assert claims[0]["pr"] == 99
+
+
+def test_get_active_claims_released(temp_bus: Path) -> None:
+    bus.claim_pr(5)
+    bus.release_pr(5)
+    assert bus.get_active_claims() == []
+
+
+def test_get_active_claims_stale(temp_bus: Path) -> None:
+    old_ts = (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
+    msg = _sample_message()
+    msg["timestamp"] = old_ts
+    msg["type"] = "event"
+    msg["topic"] = "merge-queue"
+    msg["payload"] = {"pr": 3, "action": "claim"}
+    bus.write_message(msg)
+    assert bus.get_active_claims() == []
 
 
 # ---------------------------------------------------------------------------
