@@ -20,6 +20,7 @@ from adhd.bus import (
     get_decision_history,
     get_pending_decisions,
     get_perf_level,
+    get_rules,
     hitl_approve_gonogo,
     hitl_claim_decision,
     hitl_provide_rpe,
@@ -42,7 +43,6 @@ from adhd.bus import (
 from adhd.bus import (
     send as bus_send,
 )
-from adhd.rules import get_rules
 
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 
@@ -345,7 +345,7 @@ async def adhd_get_rules() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Phase 3: Heartbeat lifecycle (deferred for validation)
+# Phase 3: Heartbeat lifecycle
 # ---------------------------------------------------------------------------
 _heartbeat_task: asyncio.Task[None] | None = None
 
