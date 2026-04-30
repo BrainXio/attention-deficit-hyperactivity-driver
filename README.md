@@ -19,7 +19,7 @@ This project is the *medication* for multi-agent chaos. Not by suppressing the p
 
 - **Signin/Signout**: "I exist, I'm working on X"
 - **Heartbeat**: "Still alive, not blocked, last did Y"
-- **Main Session**: One coordinator to rule them all (user-controlled, not automatic)
+- **Supporter Sessions**: Optional helper sessions that monitor CI, archive the bus, and nudge stale agents. Multiple supporters can coexist safely.
 - **Request/Response**: "Can someone review my PR?" → "On it"
 - **Archival**: Don't let the log grow unbounded (the ADHD notebook problem)
 
@@ -45,27 +45,24 @@ Every line is a JSON object:
 }
 ```
 
-Types: `signin`, `signout`, `heartbeat`, `status`, `schema`, `dependency`, `question`, `answer`, `event`, `tool_use`, `main_session_set`, `main_session_released`, `request`, `response`
+Types: `signin`, `signout`, `heartbeat`, `status`, `schema`, `dependency`, `question`, `answer`, `event`, `tool_use`, `request`, `response`
 
 ### MCP Server
 
 The sole interface is `adhd-mcp`, a FastMCP stdio server registered via `.mcp.json`.
 
-| Tool                   | Purpose                          | ADHD Parallel                                      |
-| ---------------------- | -------------------------------- | -------------------------------------------------- |
-| `adhd_resolve`         | Find canonical bus path          | Knowing where you left your keys                   |
-| `adhd_validate`        | Validate JSONL schema            | Checking your work before submitting               |
-| `adhd_signin`          | Write signin message             | "I'm here, I'm going to do X"                      |
-| `adhd_signout`         | Write signout message            | "I'm done, here's what happened"                   |
-| `adhd_start_heartbeat` | Background heartbeat             | "Still alive, not blocked, making progress"        |
-| `adhd_post`            | Post generic message             | Sharing a thought with the group                   |
-| `adhd_read`            | Read/filter messages             | Catching up on what you missed                     |
-| `adhd_send`            | Send request to specific agent   | "Hey, can you help me with...?"                    |
-| `adhd_archive`         | Archive old messages             | Cleaning up your workspace                         |
-| `adhd_main_check`      | Check who is main                | The one person keeping the meeting on track        |
-| `adhd_main_claim`      | Claim coordinator role           | Taking charge (requires ADHD_ENABLE_COORDINATOR=1) |
-| `adhd_main_release`    | Release coordinator role         | Handing off the baton                              |
-| `adhd_main_elect`      | Auto-elect oldest active session | Emergency backup plan                              |
+| Tool                   | Purpose                         | ADHD Parallel                               |
+| ---------------------- | ------------------------------- | ------------------------------------------- |
+| `adhd_resolve`         | Find canonical bus path         | Knowing where you left your keys            |
+| `adhd_validate`        | Validate JSONL schema           | Checking your work before submitting        |
+| `adhd_signin`          | Write signin message            | "I'm here, I'm going to do X"               |
+| `adhd_signout`         | Write signout message           | "I'm done, here's what happened"            |
+| `adhd_start_heartbeat` | Background heartbeat            | "Still alive, not blocked, making progress" |
+| `adhd_post`            | Post generic message            | Sharing a thought with the group            |
+| `adhd_read`            | Read/filter messages            | Catching up on what you missed              |
+| `adhd_send`            | Send request to specific agent  | "Hey, can you help me with...?"             |
+| `adhd_archive`         | Archive old messages            | Cleaning up your workspace                  |
+| `adhd_main_check`      | Check active supporter sessions | Who's monitoring the room                   |
 
 ## Installation
 
@@ -81,13 +78,7 @@ uv pip install -e .
 
 ## Usage
 
-### Claim the coordinator role (requires ADHD_ENABLE_COORDINATOR=1)
-
-```
-ADHD_ENABLE_COORDINATOR=1 adhd_main_claim
-```
-
-### Check who is coordinating
+### Check active supporter sessions
 
 ```
 adhd_main_check
@@ -111,10 +102,11 @@ The bus lives at `~/.brainxio/adhd/{repo-slug}/bus.jsonl`. This centralizes coor
 
 ### Environment Variables
 
-| Variable             | Purpose                                     |
-| -------------------- | ------------------------------------------- |
-| `ADHD_BUS_PATH`      | Absolute path override for advanced use     |
-| `ADHD_BUS_REPO_SLUG` | Join a specific repo's bus from any session |
+| Variable                | Purpose                                     |
+| ----------------------- | ------------------------------------------- |
+| `ADHD_BUS_PATH`         | Absolute path override for advanced use     |
+| `ADHD_BUS_REPO_SLUG`    | Join a specific repo's bus from any session |
+| `ADHD_ENABLE_SUPPORTER` | Mark this session as a supporter (additive) |
 
 ### Cross-Repo Coordination
 
@@ -128,6 +120,6 @@ ADHD_BUS_REPO_SLUG=projects uv run adhd-mcp
 
 **Simple over smart.** The bus is append-only JSONL. No server, no database, no network. If it works for `git reflog`, it works for agent coordination.
 
-**Explicit over automatic.** The main session must be claimed explicitly via `ADHD_ENABLE_COORDINATOR=1`. Agents don't self-elect into coordination roles — that's how you get coordinator ADHD.
+**Explicit over automatic.** Supporter sessions are opted in via `ADHD_ENABLE_SUPPORTER=1`. Any number of supporters can coexist — they monitor, archive, and nudge without exclusive locks.
 
 **Graceful degradation.** If the bus is missing, agents continue working solo. They just can't coordinate.

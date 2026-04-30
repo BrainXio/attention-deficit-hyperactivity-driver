@@ -14,9 +14,6 @@ import adhd.mcp_server as mcp_server_mod
 from adhd.mcp_server import (
     adhd_archive,
     adhd_main_check,
-    adhd_main_claim,
-    adhd_main_elect,
-    adhd_main_release,
     adhd_post,
     adhd_read,
     adhd_resolve,
@@ -40,9 +37,9 @@ def temp_bus(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def allow_main() -> None:
-    """Set ADHD_ENABLE_COORDINATOR for tests that need it."""
-    with patch.dict(os.environ, {"ADHD_ENABLE_COORDINATOR": "1"}):
+def allow_supporter() -> None:
+    """Set ADHD_ENABLE_SUPPORTER for tests that need it."""
+    with patch.dict(os.environ, {"ADHD_ENABLE_SUPPORTER": "1"}):
         yield
 
 
@@ -53,23 +50,23 @@ def allow_main() -> None:
 
 @pytest.mark.asyncio
 async def test_adhd_signin(temp_bus: Path) -> None:
-    result = await adhd_signin(role="sub")
+    result = await adhd_signin()
     assert "Signed in" in result
     msgs = bus.read_messages(type_filter="signin")
     assert len(msgs) == 1
 
 
 @pytest.mark.asyncio
-async def test_adhd_signin_main_blocked_without_env(temp_bus: Path) -> None:
-    with patch.dict(os.environ, {}, clear=True):
-        result = await adhd_signin(role="main")
-    assert "ERROR" in result
-    assert "blocked" in result.lower()
+async def test_adhd_signin_supporter(temp_bus: Path, allow_supporter: Any) -> None:
+    result = await adhd_signin()
+    assert "supporter" in result.lower()
+    msgs = bus.read_messages(type_filter="signin")
+    assert msgs[0]["payload"]["supporter"] is True
 
 
 @pytest.mark.asyncio
 async def test_adhd_signout(temp_bus: Path) -> None:
-    await adhd_signin(role="sub")
+    await adhd_signin()
     result = await adhd_signout()
     assert "Signed out" in result
 
@@ -81,7 +78,7 @@ async def test_adhd_signout(temp_bus: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_adhd_read(temp_bus: Path) -> None:
-    await adhd_signin(role="sub")
+    await adhd_signin()
     result = await adhd_read(limit=5)
     assert "signin" in result
 
@@ -106,51 +103,22 @@ async def test_adhd_send(temp_bus: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Main session tools
+# Supporter tools
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_adhd_main_check_no_main(temp_bus: Path) -> None:
+async def test_adhd_main_check_no_supporters(temp_bus: Path) -> None:
     result = await adhd_main_check()
-    assert "No main session" in result
+    assert "No active supporter" in result
 
 
 @pytest.mark.asyncio
-async def test_adhd_main_claim_blocked_without_env(temp_bus: Path) -> None:
-    with patch.dict(os.environ, {}, clear=True):
-        result = await adhd_main_claim()
-    assert "ERROR" in result
-    assert "blocked" in result.lower()
-
-
-@pytest.mark.asyncio
-async def test_adhd_main_claim_with_env(temp_bus: Path, allow_main: Any) -> None:
-    result = await adhd_main_claim()
-    assert "claimed" in result.lower()
-    msgs = bus.read_messages(type_filter="main_session_set")
-    assert len(msgs) == 1
-
-
-@pytest.mark.asyncio
-async def test_adhd_main_release_no_main(temp_bus: Path) -> None:
-    result = await adhd_main_release()
-    assert "ERROR" in result
-    assert "no main session" in result.lower()
-
-
-@pytest.mark.asyncio
-async def test_adhd_main_elect_no_sessions(temp_bus: Path, allow_main: Any) -> None:
-    result = await adhd_main_elect()
-    assert "ERROR" in result
-    assert "No active sessions" in result
-
-
-@pytest.mark.asyncio
-async def test_adhd_main_elect_success(temp_bus: Path, allow_main: Any) -> None:
-    await adhd_signin(role="sub")
-    result = await adhd_main_elect()
-    assert "claimed" in result.lower()
+async def test_adhd_main_check_with_supporter(temp_bus: Path, allow_supporter: Any) -> None:
+    await adhd_signin()
+    result = await adhd_main_check()
+    assert "supporter" in result.lower()
+    assert "agent-" in result
 
 
 # ---------------------------------------------------------------------------

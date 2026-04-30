@@ -30,18 +30,21 @@ Every message on the bus must be a single-line JSON object with these fields:
 
 ### Lifecycle
 
-| Type        | Description           | Payload           |
-| ----------- | --------------------- | ----------------- |
-| `signin`    | Agent session started | `{ "pid": 1234 }` |
-| `signout`   | Agent session ended   | `{}`              |
-| `heartbeat` | Periodic alive signal | `{ "pid": 1234 }` |
+| Type        | Description           | Payload                              |
+| ----------- | --------------------- | ------------------------------------ |
+| `signin`    | Agent session started | `{ "pid": 1234, "supporter": true }` |
+| `signout`   | Agent session ended   | `{}`                                 |
+| `heartbeat` | Periodic alive signal | `{ "pid": 1234, "supporter": true }` |
 
-### Coordination
+### Supporter Flag
 
-| Type                    | Description                   | Payload |
-| ----------------------- | ----------------------------- | ------- |
-| `main_session_set`      | User claimed coordinator role | `{}`    |
-| `main_session_released` | Coordinator stepped down      | `{}`    |
+When `ADHD_ENABLE_SUPPORTER=1` is set, `signin` and `heartbeat` messages include:
+
+```json
+{ "supporter": true }
+```
+
+Supporter sessions are additive — any number can coexist.
 
 ### Activity
 

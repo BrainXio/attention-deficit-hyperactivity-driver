@@ -41,9 +41,7 @@ Once connected, these tools are available:
 - `adhd_read` — Read recent messages from the bus
 - `adhd_post` — Post a message to the bus
 - `adhd_send` — Send a message to another agent
-- `adhd_main_check` — Check who is main coordinator
-- `adhd_main_claim` — Claim main coordinator role (requires ADHD_ENABLE_COORDINATOR=1)
-- `adhd_main_release` — Release main coordinator role
+- `adhd_main_check` — Check active supporter sessions
 - `adhd_validate` — Validate bus integrity
 - `adhd_archive` — Archive old messages
 
@@ -63,8 +61,7 @@ When recording RPE outcomes, broadcast via `adhd_post`:
 
 ## Rules
 
-- **Never** claim main session.
+- **Opt in** to supporter mode via `ADHD_ENABLE_SUPPORTER=1` if you want to monitor CI, archive the bus, or nudge stale agents.
 - **Always** sign out before exiting.
 - **Respond** to messages to you or "all".
 - **Broadcast** RPE outcomes so other agents learn from your experience.
-- **Respect** the main coordinator's decisions.

@@ -14,13 +14,10 @@ from mcp.server.fastmcp import FastMCP
 from adhd.bus import (
     agent_id,
     archive,
-    check_main,
-    claim_main,
+    check_supporters,
     current_branch,
-    elect_main,
     now,
     read_messages,
-    release_main,
     resolve,
     session_id,
     signin,
@@ -51,25 +48,8 @@ mcp = FastMCP(
 
 
 @mcp.tool()
-async def adhd_signin(role: str = "sub") -> str:
-    """Sign in to the ADHD coordination bus. Call once when your session starts.
-
-    Args:
-        role: Register as "main" (coordinator) or "sub" (worker, default).
-              Only one main can exist at a time. Main claim fails if another
-              active main exists. Requires ADHD_ENABLE_COORDINATOR=1.
-    """
-    if role == "main":
-        if not os.environ.get("ADHD_ENABLE_COORDINATOR"):
-            return (
-                "ERROR: Main claim blocked. "
-                "Set ADHD_ENABLE_COORDINATOR=1 to claim coordinator role."
-            )
-        result = claim_main()
-        if not result.success:
-            return f"ERROR: {result.message}"
-        signin_msg = signin()
-        return f"Signed in as MAIN. {signin_msg}"
+async def adhd_signin() -> str:
+    """Sign in to the ADHD coordination bus. Call once when your session starts."""
     return signin()
 
 
@@ -110,8 +90,6 @@ async def adhd_read(
 
 PROTECTED_TYPES = frozenset(
     {
-        "main_session_set",
-        "main_session_released",
         "signin",
         "signout",
         "heartbeat",
@@ -157,64 +135,25 @@ async def adhd_send(
 
 
 # ---------------------------------------------------------------------------
-# Main session tools
+# Supporter tools
 # ---------------------------------------------------------------------------
 
 
 @mcp.tool()
 async def adhd_main_check() -> str:
-    """Check who currently holds the main coordinator role."""
-    current = check_main()
-    if current:
-        return f"Main session: {current}"
-    return "No main session active"
+    """Check active supporter sessions on the bus.
 
-
-@mcp.tool()
-async def adhd_main_claim() -> str:
-    """Claim the main coordinator role.
-
-    Requires ADHD_ENABLE_COORDINATOR=1. Fails if another active main session exists
-    (heartbeat within last 20 minutes).
+    Returns a list of sessions that signed in with supporter=True and have
+    a heartbeat within the last 20 minutes.
     """
-    if not os.environ.get("ADHD_ENABLE_COORDINATOR"):
-        return "ERROR: Main claim blocked. Set ADHD_ENABLE_COORDINATOR=1 to claim coordinator role."
-    result = claim_main()
-    if not result.success:
-        return f"ERROR: {result.message}"
-    return result.message
+    supporters = check_supporters()
+    if not supporters:
+        return "No active supporter sessions."
 
-
-@mcp.tool()
-async def adhd_main_release() -> str:
-    """Release the main coordinator role. Call when your coordinating session ends.
-
-    Only the current main session can release itself.
-    """
-    current = check_main()
-    my_id = agent_id()
-    if current is None:
-        return "ERROR: No main session is currently active."
-    if current != my_id:
-        return f"ERROR: You are not the main session. Current main: {current}"
-    release_main()
-    return "Main session released."
-
-
-@mcp.tool()
-async def adhd_main_elect() -> str:
-    """Auto-elect the oldest active session as main coordinator.
-
-    Requires ADHD_ENABLE_COORDINATOR=1.
-    """
-    if not os.environ.get("ADHD_ENABLE_COORDINATOR"):
-        return (
-            "ERROR: Main election blocked. Set ADHD_ENABLE_COORDINATOR=1 to elect coordinator role."
-        )
-    result = elect_main()
-    if not result.success:
-        return f"ERROR: {result.message}"
-    return result.message
+    lines = [f"Active supporters ({len(supporters)}):"]
+    for s in supporters:
+        lines.append(f"  {s['agent_id']} (session {s['session_id']}) — last seen {s['timestamp']}")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -246,13 +185,16 @@ async def adhd_resolve() -> str:
 # ---------------------------------------------------------------------------
 # Phase 3: Heartbeat lifecycle (deferred for validation)
 # ---------------------------------------------------------------------------
-
 _heartbeat_task: asyncio.Task[None] | None = None
 
 
 async def heartbeat_loop() -> None:
     """Write a heartbeat every 10 minutes while the session is alive."""
     while True:
+        payload: dict[str, object] = {}
+        if os.environ.get("ADHD_ENABLE_SUPPORTER"):
+            payload["supporter"] = True
+
         write_message(
             {
                 "timestamp": now(),
@@ -261,7 +203,7 @@ async def heartbeat_loop() -> None:
                 "branch": current_branch(),
                 "type": "heartbeat",
                 "topic": "agent-lifecycle",
-                "payload": {},
+                "payload": payload,
             }
         )
         await asyncio.sleep(600)

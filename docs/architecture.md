@@ -19,21 +19,21 @@ The bus is a simple append-only file of JSON lines. This is the same format used
 
 The bus lives at `~/.brainxio/adhd/{repo-slug}/bus.jsonl`. This centralizes coordination state outside any single repo, enabling cross-repo sessions to share a bus. The repo slug is derived from the git toplevel directory name, overridable via `ADHD_BUS_REPO_SLUG`.
 
-### 3. Explicit Main Session
+### 3. Supporter Sessions
 
-The coordinator role must be claimed explicitly via `ADHD_ENABLE_COORDINATOR=1`. Agents cannot self-elect. This prevents:
+Supporter sessions are opted in via `ADHD_ENABLE_SUPPORTER=1`. They monitor CI, archive the bus, and nudge stale agents. Unlike the old coordinator model:
 
-- Race conditions on startup
-- Dead coordinators (agent crashes but bus says it's main)
-- Confusion about who is in charge
+- Multiple supporters can coexist safely
+- No claim/release lifecycle — supporters are additive
+- If a supporter crashes, others continue uninterrupted
 
 ### 4. Heartbeat Protocol
 
-Every agent writes a heartbeat every 10 minutes. If an agent misses 2 heartbeats (20 min), it is considered dead. The main session can:
+Every agent writes a heartbeat every 10 minutes. If an agent misses 2 heartbeats (20 min), it is considered inactive. Supporter sessions can:
 
-- Detect silent agents
-- Send heartbeat pings to stuck agents
-- Elect a new main if the old one disappears
+- Detect silent agents and post nudges to the bus
+- Archive the bus when it grows too large
+- Monitor CI pipelines and post results
 
 ## Components
 
@@ -54,13 +54,13 @@ repo-root/
 
 ## Environment Variables
 
-| Variable                  | Purpose                                                    |
-| ------------------------- | ---------------------------------------------------------- |
-| `ADHD_BUS_PATH`           | Absolute path to bus file (overrides all derivation)       |
-| `ADHD_BUS_REPO_SLUG`      | Repo key in `.brainxio/adhd/` (default: git toplevel name) |
-| `ADHD_SESSION_ID`         | Fixed session identifier (default: random 8-char UUID)     |
-| `ADHD_AGENT_ID`           | Agent identifier (default: `agent-{session_id}`)           |
-| `ADHD_ENABLE_COORDINATOR` | Set to `1` to permit main session claims                   |
+| Variable                | Purpose                                                    |
+| ----------------------- | ---------------------------------------------------------- |
+| `ADHD_BUS_PATH`         | Absolute path to bus file (overrides all derivation)       |
+| `ADHD_BUS_REPO_SLUG`    | Repo key in `.brainxio/adhd/` (default: git toplevel name) |
+| `ADHD_SESSION_ID`       | Fixed session identifier (default: random 8-char UUID)     |
+| `ADHD_AGENT_ID`         | Agent identifier (default: `agent-{session_id}`)           |
+| `ADHD_ENABLE_SUPPORTER` | Set to `1` to mark session as a supporter (additive)       |
 
 ### Cross-Repo Coordination
 
@@ -78,25 +78,22 @@ The sole interface is `adhd-mcp`, a FastMCP stdio server. All agent interactions
 
 ### Tools
 
-| Tool                | Purpose                                                     |
-| ------------------- | ----------------------------------------------------------- |
-| `adhd_signin`       | Register session on the bus                                 |
-| `adhd_signout`      | Deregister session                                          |
-| `adhd_read`         | Read/filter messages                                        |
-| `adhd_post`         | Post a generic message                                      |
-| `adhd_send`         | Send message to specific agent                              |
-| `adhd_main_check`   | Check current main session                                  |
-| `adhd_main_claim`   | Claim coordinator role (requires ADHD_ENABLE_COORDINATOR=1) |
-| `adhd_main_release` | Release coordinator role                                    |
-| `adhd_main_elect`   | Auto-elect oldest active session                            |
-| `adhd_validate`     | Validate bus integrity                                      |
-| `adhd_archive`      | Archive old messages                                        |
-| `adhd_resolve`      | Print canonical bus path                                    |
+| Tool              | Purpose                         |
+| ----------------- | ------------------------------- |
+| `adhd_signin`     | Register session on the bus     |
+| `adhd_signout`    | Deregister session              |
+| `adhd_read`       | Read/filter messages            |
+| `adhd_post`       | Post a generic message          |
+| `adhd_send`       | Send message to specific agent  |
+| `adhd_main_check` | Check active supporter sessions |
+| `adhd_validate`   | Validate bus integrity          |
+| `adhd_archive`    | Archive old messages            |
+| `adhd_resolve`    | Print canonical bus path        |
 
 ## Message Flow
 
 ```
-  Agent A         Agent B         Main Session
+  Agent A         Agent B         Supporter
        |               |               |
        |-- signin----->|               |
        |               |-- signin----->|
