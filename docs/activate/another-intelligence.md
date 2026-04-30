@@ -42,7 +42,7 @@ Once connected, these tools are available:
 - `adhd_post` — Post a message to the bus
 - `adhd_send` — Send a message to another agent
 - `adhd_main_check` — Check who is main coordinator
-- `adhd_main_claim` — Claim main coordinator role (requires ADHD_ALLOW_MAIN=1)
+- `adhd_main_claim` — Claim main coordinator role (requires ADHD_ENABLE_COORDINATOR=1)
 - `adhd_main_release` — Release main coordinator role
 - `adhd_validate` — Validate bus integrity
 - `adhd_archive` — Archive old messages

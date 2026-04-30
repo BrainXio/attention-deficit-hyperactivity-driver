@@ -21,7 +21,7 @@ The bus lives at `~/.brainxio/adhd/{repo-slug}/bus.jsonl`. This centralizes coor
 
 ### 3. Explicit Main Session
 
-The coordinator role must be claimed explicitly via `ADHD_ALLOW_MAIN=1`. Agents cannot self-elect. This prevents:
+The coordinator role must be claimed explicitly via `ADHD_ENABLE_COORDINATOR=1`. Agents cannot self-elect. This prevents:
 
 - Race conditions on startup
 - Dead coordinators (agent crashes but bus says it's main)
@@ -60,7 +60,7 @@ repo-root/
 | `ADHD_BUS_REPO_SLUG` | Repo key in `.brainxio/adhd/` (default: git toplevel name) |
 | `ADHD_SESSION_ID`    | Fixed session identifier (default: random 8-char UUID)     |
 | `ADHD_AGENT_ID`      | Agent identifier (default: `agent-{session_id}`)           |
-| `ADHD_ALLOW_MAIN`    | Set to `1` to permit main session claims                   |
+| `ADHD_ENABLE_COORDINATOR`    | Set to `1` to permit main session claims                   |
 
 ### Cross-Repo Coordination
 
@@ -86,7 +86,7 @@ The sole interface is `adhd-mcp`, a FastMCP stdio server. All agent interactions
 | `adhd_post`         | Post a generic message              |
 | `adhd_send`         | Send message to specific agent      |
 | `adhd_main_check`   | Check current main session          |
-| `adhd_main_claim`   | Claim coordinator role (requires ADHD_ALLOW_MAIN=1) |
+| `adhd_main_claim`   | Claim coordinator role (requires ADHD_ENABLE_COORDINATOR=1) |
 | `adhd_main_release` | Release coordinator role            |
 | `adhd_main_elect`   | Auto-elect oldest active session    |
 | `adhd_validate`     | Validate bus integrity              |

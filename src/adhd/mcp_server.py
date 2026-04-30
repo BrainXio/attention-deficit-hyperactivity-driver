@@ -57,11 +57,14 @@ async def adhd_signin(role: str = "sub") -> str:
     Args:
         role: Register as "main" (coordinator) or "sub" (worker, default).
               Only one main can exist at a time. Main claim fails if another
-              active main exists. Requires ADHD_ALLOW_MAIN=1.
+              active main exists. Requires ADHD_ENABLE_COORDINATOR=1.
     """
     if role == "main":
-        if not os.environ.get("ADHD_ALLOW_MAIN"):
-            return "ERROR: Main claim blocked. Set ADHD_ALLOW_MAIN=1 to claim coordinator role."
+        if not os.environ.get("ADHD_ENABLE_COORDINATOR"):
+            return (
+                "ERROR: Main claim blocked. "
+                "Set ADHD_ENABLE_COORDINATOR=1 to claim coordinator role."
+            )
         result = claim_main()
         if not result.success:
             return f"ERROR: {result.message}"
@@ -171,11 +174,11 @@ async def adhd_main_check() -> str:
 async def adhd_main_claim() -> str:
     """Claim the main coordinator role.
 
-    Requires ADHD_ALLOW_MAIN=1. Fails if another active main session exists
+    Requires ADHD_ENABLE_COORDINATOR=1. Fails if another active main session exists
     (heartbeat within last 20 minutes).
     """
-    if not os.environ.get("ADHD_ALLOW_MAIN"):
-        return "ERROR: Main claim blocked. Set ADHD_ALLOW_MAIN=1 to claim coordinator role."
+    if not os.environ.get("ADHD_ENABLE_COORDINATOR"):
+        return "ERROR: Main claim blocked. Set ADHD_ENABLE_COORDINATOR=1 to claim coordinator role."
     result = claim_main()
     if not result.success:
         return f"ERROR: {result.message}"
@@ -202,10 +205,12 @@ async def adhd_main_release() -> str:
 async def adhd_main_elect() -> str:
     """Auto-elect the oldest active session as main coordinator.
 
-    Requires ADHD_ALLOW_MAIN=1.
+    Requires ADHD_ENABLE_COORDINATOR=1.
     """
-    if not os.environ.get("ADHD_ALLOW_MAIN"):
-        return "ERROR: Main election blocked. Set ADHD_ALLOW_MAIN=1 to elect coordinator role."
+    if not os.environ.get("ADHD_ENABLE_COORDINATOR"):
+        return (
+            "ERROR: Main election blocked. Set ADHD_ENABLE_COORDINATOR=1 to elect coordinator role."
+        )
     result = elect_main()
     if not result.success:
         return f"ERROR: {result.message}"
