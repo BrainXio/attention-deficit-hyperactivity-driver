@@ -17,7 +17,14 @@ from adhd.bus import (
     check_mcp_change_status,
     check_supporters,
     current_branch,
+    get_decision_history,
+    get_pending_decisions,
     get_perf_level,
+    hitl_approve_gonogo,
+    hitl_claim_decision,
+    hitl_provide_rpe,
+    hitl_release_decision,
+    hitl_split_duties,
     mark_mcp_change_ready,
     now,
     prepare_mcp_change,
@@ -34,6 +41,9 @@ from adhd.bus import (
 )
 from adhd.bus import (
     send as bus_send,
+)
+from adhd.rules import (
+    get_rules,
 )
 
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
@@ -243,7 +253,101 @@ async def adhd_resolve() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Phase 3: Heartbeat lifecycle (deferred for validation)
+# Human-In-The-Loop (HITL) tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def adhd_human_claim_decision(
+    decision_id: str, description: str, urgency: str = "medium"
+) -> str:
+    """Claim a pending decision for human review.
+
+    Args:
+        decision_id: Unique identifier (e.g., "pr-42-merge")
+        description: Human-readable summary of what needs deciding
+        urgency: low | medium | high (default medium)
+    """
+    return hitl_claim_decision(decision_id, description, urgency)
+
+
+@mcp.tool()
+async def adhd_human_release_decision(decision_id: str) -> str:
+    """Release a previously claimed decision so another agent can pick it up."""
+    return hitl_release_decision(decision_id)
+
+
+@mcp.tool()
+async def adhd_human_provide_rpe(decision_id: str, rpe_value: float, notes: str = "") -> str:
+    """Provide Reward Prediction Error feedback for a decision.
+
+    Args:
+        decision_id: The decision this RPE applies to
+        rpe_value: Numeric RPE (positive = better than expected)
+        notes: Optional human-readable context
+    """
+    return hitl_provide_rpe(decision_id, rpe_value, notes)
+
+
+@mcp.tool()
+async def adhd_human_approve_gonogo(decision_id: str, approved: bool, reason: str = "") -> str:
+    """Approve or reject a Go/NoGo action.
+
+    Args:
+        decision_id: The action under review
+        approved: True to approve, False to reject
+        reason: Optional explanation
+    """
+    return hitl_approve_gonogo(decision_id, approved, reason)
+
+
+@mcp.tool()
+async def adhd_human_split_duties(duties: list[str], target_agents: list[str]) -> str:
+    """Split or supplement supporter duties across agents.
+
+    Args:
+        duties: List of duty descriptions (e.g., ["bus-monitor", "pr-scan"])
+        target_agents: Agent IDs or "all" to broadcast
+    """
+    return hitl_split_duties(duties, target_agents)
+
+
+@mcp.tool()
+async def adhd_human_pending_decisions() -> str:
+    """List all decisions currently claimed but not yet resolved."""
+    decisions = get_pending_decisions()
+    if not decisions:
+        return "No pending decisions."
+    return json.dumps(decisions, indent=2)
+
+
+@mcp.tool()
+async def adhd_human_decision_history(decision_id: str) -> str:
+    """Return the full message history for a specific decision."""
+    history = get_decision_history(decision_id)
+    if not history:
+        return f"No history found for decision '{decision_id}'."
+    return json.dumps(history, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Self-describing rules
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def adhd_get_rules() -> str:
+    """Return structured protocol rules for the ADHD bus.
+
+    Returns a JSON object describing all protocols (heartbeat, supporter,
+    mcp-change, merge-queue, HITL), message types, env vars, and tools.
+    Agents can call this at startup to learn how the bus works.
+    """
+    return json.dumps(get_rules(), indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Heartbeat lifecycle
 # ---------------------------------------------------------------------------
 _heartbeat_task: asyncio.Task[None] | None = None
 
