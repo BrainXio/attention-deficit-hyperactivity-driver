@@ -78,17 +78,20 @@ The sole interface is `adhd-mcp`, a FastMCP stdio server. All agent interactions
 
 ### Tools
 
-| Tool              | Purpose                         |
-| ----------------- | ------------------------------- |
-| `adhd_signin`     | Register session on the bus     |
-| `adhd_signout`    | Deregister session              |
-| `adhd_read`       | Read/filter messages            |
-| `adhd_post`       | Post a generic message          |
-| `adhd_send`       | Send message to specific agent  |
-| `adhd_main_check` | Check active supporter sessions |
-| `adhd_validate`   | Validate bus integrity          |
-| `adhd_archive`    | Archive old messages            |
-| `adhd_resolve`    | Print canonical bus path        |
+| Tool                      | Purpose                                  |
+| ------------------------- | ---------------------------------------- |
+| `adhd_signin`             | Register session on the bus              |
+| `adhd_signout`            | Deregister session                       |
+| `adhd_read`               | Read/filter messages                     |
+| `adhd_post`               | Post a generic message                   |
+| `adhd_send`               | Send message to specific agent           |
+| `adhd_main_check`         | Check active supporter sessions          |
+| `adhd_validate`           | Validate bus integrity                   |
+| `adhd_archive`            | Archive old messages                     |
+| `adhd_mcp_change_prepare` | Signal server code change about to start |
+| `adhd_mcp_change_ready`   | Signal server code change complete       |
+| `adhd_mcp_change_check`   | Check if any server is being modified    |
+| `adhd_resolve`            | Print canonical bus path                 |
 
 ## Message Flow
 
@@ -119,3 +122,46 @@ The sole interface is `adhd-mcp`, a FastMCP stdio server. All agent interactions
 - **Missing required field**: Skipped by readers
 - **Corrupt archive**: Archived file is skipped, bus continues
 - **Disk full**: Writes fail, agents fall back to solo mode
+
+## MCP Change Notification Protocol
+
+When an agent modifies MCP server code in adhd, asd, or ocd, it must notify other sessions to prevent transient tool errors during hot-reload deployments.
+
+### Protocol
+
+1. **Before change**: Call `adhd_mcp_change_prepare(server="<name>")`
+2. **Wait ~5 seconds** for other sessions to see the notification and pause tool calls
+3. **After change**: Call `adhd_mcp_change_ready(server="<name>", commit="<hash>")`
+4. **For other sessions**: When seeing a "preparing" notification (via `adhd_mcp_change_check`), pause MCP tool calls to that server until the matching "ready" appears
+
+### Bus Message Format
+
+```json
+{
+  "type": "event",
+  "topic": "mcp-change",
+  "payload": {
+    "server": "asd",
+    "action": "preparing",
+    "branch": "feat/xyz",
+    "session_id": "a1b2c3d4"
+  }
+}
+```
+
+For "ready":
+
+```json
+{
+  "type": "event",
+  "topic": "mcp-change",
+  "payload": {
+    "server": "asd",
+    "action": "ready",
+    "commit": "abc123def",
+    "session_id": "a1b2c3d4"
+  }
+}
+```
+
+The `adhd_mcp_change_check` tool scans the bus for servers that have a "preparing" without a matching "ready". If an agent crashes between prepare and ready, the server appears in-flux until the session's heartbeat expires naturally (20 min).

@@ -69,3 +69,11 @@ Supporter sessions are additive — any number can coexist.
 | ------------ | ------------------ | -------------------------------------------------------------------- |
 | `schema`     | Shared API schema  | `{ "api": "brain.decide", "signature": "..." }`                      |
 | `dependency` | Declare dependency | `{ "needs": "feat/brain-regions", "provides": "feat/cli-commands" }` |
+
+### MCP Change Coordination
+
+| Type    | Topic        | Payload                                                                                                |
+| ------- | ------------ | ------------------------------------------------------------------------------------------------------ |
+| `event` | `mcp-change` | <code>{"server": "\<name>", "action": "preparing\|ready", "branch": "...", "session_id": "..."}</code> |
+
+Used by agents to coordinate MCP server code changes. See `docs/architecture.md` for the full protocol.

@@ -14,9 +14,12 @@ from mcp.server.fastmcp import FastMCP
 from adhd.bus import (
     agent_id,
     archive,
+    check_mcp_change_status,
     check_supporters,
     current_branch,
+    mark_mcp_change_ready,
     now,
+    prepare_mcp_change,
     read_messages,
     resolve,
     session_id,
@@ -96,6 +99,8 @@ PROTECTED_TYPES = frozenset(
     }
 )
 
+PROTECTED_TOPICS = frozenset({"mcp-change"})
+
 
 @mcp.tool()
 async def adhd_post(type: str, topic: str, payload: str = "{}") -> str:
@@ -108,6 +113,8 @@ async def adhd_post(type: str, topic: str, payload: str = "{}") -> str:
     """
     if type in PROTECTED_TYPES:
         return f"ERROR: Message type '{type}' is protected. Use the dedicated tool instead."
+    if topic in PROTECTED_TOPICS:
+        return f"ERROR: Message topic '{topic}' is protected. Use the dedicated tool instead."
     try:
         payload_dict: dict[str, object] = json.loads(payload)
     except json.JSONDecodeError as exc:
@@ -153,6 +160,58 @@ async def adhd_main_check() -> str:
     lines = [f"Active supporters ({len(supporters)}):"]
     for s in supporters:
         lines.append(f"  {s['agent_id']} (session {s['session_id']}) — last seen {s['timestamp']}")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# MCP change notification tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def adhd_mcp_change_prepare(server: str) -> str:
+    """Signal that an MCP server code change is about to start.
+
+    Posts a 'preparing' notification to the bus. Other sessions should
+    pause tool calls to this server until the matching 'ready' message.
+
+    Args:
+        server: MCP server name (\"adhd\", \"asd\", or \"ocd\")
+    """
+    return prepare_mcp_change(server)
+
+
+@mcp.tool()
+async def adhd_mcp_change_ready(server: str, commit: str = "") -> str:
+    """Signal that an MCP server code change is complete.
+
+    Posts a 'ready' notification to the bus. Other sessions can resume
+    tool calls to this server.
+
+    Args:
+        server: MCP server name (\"adhd\", \"asd\", or \"ocd\")
+        commit: Optional commit hash of the deployed change
+    """
+    return mark_mcp_change_ready(server, commit)
+
+
+@mcp.tool()
+async def adhd_mcp_change_check() -> str:
+    """Check if any MCP server is currently being modified.
+
+    Returns list of servers with a pending 'preparing' notification
+    that has no matching 'ready'.
+    """
+    in_flux = check_mcp_change_status()
+    if not in_flux:
+        return "No MCP servers are currently being modified."
+
+    lines = ["MCP servers currently in flux:"]
+    for s in in_flux:
+        lines.append(
+            f"  {s['server']} — by {s['agent_id']} "
+            f"(session {s['session_id']}) since {s['timestamp']}"
+        )
     return "\n".join(lines)
 
 
