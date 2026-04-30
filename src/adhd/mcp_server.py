@@ -34,6 +34,7 @@ from adhd.bus import (
 from adhd.bus import (
     send as bus_send,
 )
+from adhd.rules import get_rules
 
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 
@@ -239,6 +240,22 @@ async def adhd_archive() -> str:
 async def adhd_resolve() -> str:
     """Print the absolute path to the ADHD bus file for the current repo."""
     return str(resolve())
+
+
+# ---------------------------------------------------------------------------
+# Self-describing rules
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def adhd_get_rules() -> str:
+    """Return structured protocol rules for the ADHD bus.
+
+    Returns a JSON object describing all protocols (heartbeat, supporter,
+    mcp-change, merge-queue, HITL), message types, env vars, and tools.
+    Agents can call this at startup to learn how the bus works.
+    """
+    return json.dumps(get_rules(), indent=2)
 
 
 # ---------------------------------------------------------------------------
