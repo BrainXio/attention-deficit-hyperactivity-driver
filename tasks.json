@@ -1,0 +1,105 @@
+{
+  "repository": "attention-deficit-hyperactivity-driver",
+  "package": "adhd",
+  "role": "Coordination nervous system — multi-agent message bus",
+  "last_updated": "2026-04-30",
+  "status": "core-stable",
+  "completed": [
+    "Append-only JSONL bus with resolve, I/O, validation, archival",
+    "MCP server with 10+ tools (signin, signout, heartbeat, post, read, send, archive, validate, resolve, main_check)",
+    "Supporter model: ADHD_ENABLE_SUPPORTER replaces exclusive coordinator claim/release/elect",
+    "Env var rename: ADHD_BUS_REPO_SLUG → ADHD_BUS_SLUG",
+    "ADHD_BUS_PATH clarified as storage directory prefix (default ~/.brainxio/adhd)",
+    "Tests with mocked path resolution and supporter coverage",
+    ".mcp.json aligned across all 5 repos with absolute paths",
+    "Repo renamed from BrainXio/ADHD → BrainXio/attention-deficit-hyperactivity-driver",
+    "MCP change notification protocol (preparing/ready) on bus",
+    "Merge-queue claim protocol on bus (claim/release with 5-min TTL)",
+    "Bus path resolution: detect parent repo when inside git submodule via --show-superproject-working-tree",
+    "pyproject.toml aligned with BrainXio standard (pydocstyle, ruff format, slow marker)"
+  ],
+  "pending": [
+    {
+      "id": "adhd-1",
+      "priority": 1,
+      "subject": "Implement ADHD_PERF_LEVEL env var",
+      "description": "Add ADHD_PERF_LEVEL (low|medium|high, default medium) to supporter heartbeat payload. This allows task routing based on supporter capability. Static-only for now; detection helper is a future enhancement.",
+      "files": ["src/adhd/bus.py", "src/adhd/mcp_server.py", "README.md", "docs/architecture.md"],
+      "references": [".archive/attention-deficit-hyperactivity-driver/ (old bus schemas, coordinator model pre-supporter, and PLAN.md showing the MCP-only migration rationale)"],
+      "acceptance": [
+        "bus.py reads ADHD_PERF_LEVEL and includes it in heartbeat payload",
+        "mcp_server.py heartbeat loop respects the env var",
+        "README and architecture docs document the env var"
+      ],
+      "dependencies": []
+    },
+    {
+      "id": "adhd-2",
+      "priority": 2,
+      "subject": "Add lightweight perf_level detection helper",
+      "description": "Create scripts/detect-perf-level.py (or similar) outside core MCP that probes hardware and suggests low/medium/high. Must not be imported by adhd-mcp. ADHD itself stays model-agnostic.",
+      "files": ["scripts/detect-perf-level.py", "docs/architecture.md"],
+      "references": [".archive/attention-deficit-hyperactivity-driver/PLAN.md (shows the hardware-agnostic mandate for core MCP)"],
+      "acceptance": [
+        "Helper checks nvidia-smi / sysinfo / cpu cores and prints suggested level",
+        "Explicit override (ADHD_PERF_LEVEL set) always wins",
+        "Documented as optional, not required"
+      ],
+      "dependencies": ["adhd-1"]
+    },
+    {
+      "id": "adhd-8",
+      "priority": 1,
+      "subject": "Implement Human-In-The-Loop (HITL) MCP server extension",
+      "description": "Extend ADHD MCP server with human-in-the-loop capabilities that reuse the existing JSONL bus. Four new tools: human_claim_decision (claim a pending decision), human_provide_rpe (provide reward prediction error feedback), human_approve_gonogo (approve/reject a Go/NoGo action), human_split_duties (split/supplement supporter duties). All state lives on the bus; no new databases.",
+      "files": ["src/adhd/models.py", "src/adhd/bus.py", "src/adhd/mcp_server.py", "tests/test_hitl.py"],
+      "references": ["another-intelligence/docs/ARCHITECTURE.md (PPAC loop, RPE learning)", ".archive/attention-deficit-hyperactivity-driver/PLAN.md (bus-only state design)"],
+      "acceptance": [
+        "New bus message types: hitl_claim, hitl_rpe, hitl_approve, hitl_split",
+        "MCP tools exposed: adhd_human_claim_decision, adhd_human_provide_rpe, adhd_human_approve_gonogo, adhd_human_split_duties",
+        "State tracked via append-only bus messages (no DB, no cloud)",
+        "Tests cover claim/unclaim, rpe recording, approve/reject, and duty split"
+      ],
+      "dependencies": []
+    },
+    {
+      "id": "adhd-4",
+      "priority": 3,
+      "subject": "Add supporter stale-entry reaper",
+      "description": "Any supporter should periodically prune heartbeat entries older than 15 minutes to keep the active-supporters list accurate.",
+      "files": ["src/adhd/bus.py", "tests/test_bus.py"],
+      "acceptance": [
+        "Reaper function removes entries older than threshold",
+        "Called during archive or as separate maintenance tool"
+      ],
+      "dependencies": []
+    },
+    {
+      "id": "adhd-5",
+      "priority": 3,
+      "subject": "Document supporter model and perf_level",
+      "description": "Update README.md and docs/architecture.md to describe the supporter model, merge-queue protocol, and perf_level semantics. Keep the 'ADHD Parallel' tone.",
+      "files": ["README.md", "docs/architecture.md"],
+      "acceptance": [
+        "README tool table updated with merge-queue and perf_level notes",
+        "Architecture docs include merge-queue protocol section"
+      ],
+      "dependencies": ["adhd-1", "adhd-3"]
+    },
+    {
+      "id": "adhd-7",
+      "priority": 1,
+      "subject": "Expose ADHD rules/skills via MCP for self-describing bus usage",
+      "description": "The ADHD MCP server (or package) should deliver skills and rules on how to work with the bus natively. Any agent can query ADHD for the current protocol rules (signin/signout flow, heartbeat cadence, mcp-change coordination, supporter responsibilities, env var reference) instead of relying on external docs. This makes the bus self-describing. **Cross-package pattern:** Coordinate with ASD (asd-6) and OCD (ocd-6) to implement a unified `{package}_get_rules` pattern — implement once, replicate.",
+      "files": ["src/adhd/mcp_server.py", "src/adhd/rules.py", "README.md"],
+      "acceptance": [
+        "New MCP tool adhd_get_rules returns structured protocol rules",
+        "Rules include: heartbeat interval, supporter model semantics, mcp-change protocol, env var descriptions",
+        "Rules are versioned and match the current bus schema",
+        "Tool is discoverable by MCP clients at runtime"
+      ],
+      "dependencies": [],
+      "cross_references": ["asd-6", "ocd-6"]
+    }
+  ]
+}
