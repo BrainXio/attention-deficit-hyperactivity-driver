@@ -125,6 +125,21 @@ async def test_adhd_main_check_with_supporter(temp_bus: Path, allow_supporter: A
 
 
 # ---------------------------------------------------------------------------
+# Performance level
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_adhd_signin_includes_perf_level(temp_bus: Path, allow_supporter: Any) -> None:
+    """Supporter signin includes perf_level in payload."""
+    with patch.dict(os.environ, {"ADHD_PERF_LEVEL": "low"}):
+        result = await adhd_signin()
+    assert "supporter" in result.lower()
+    msgs = bus.read_messages(type_filter="signin")
+    assert msgs[0]["payload"]["perf_level"] == "low"
+
+
+# ---------------------------------------------------------------------------
 # MCP change notification tools
 # ---------------------------------------------------------------------------
 

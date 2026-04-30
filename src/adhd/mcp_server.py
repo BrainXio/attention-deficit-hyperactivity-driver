@@ -17,6 +17,7 @@ from adhd.bus import (
     check_mcp_change_status,
     check_supporters,
     current_branch,
+    get_perf_level,
     mark_mcp_change_ready,
     now,
     prepare_mcp_change,
@@ -253,6 +254,7 @@ async def heartbeat_loop() -> None:
         payload: dict[str, object] = {}
         if os.environ.get("ADHD_ENABLE_SUPPORTER"):
             payload["supporter"] = True
+            payload["perf_level"] = get_perf_level()
 
         write_message(
             {
