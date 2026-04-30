@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ import adhd.bus as bus
 import adhd.mcp_server as mcp_server_mod
 from adhd.mcp_server import (
     adhd_archive,
+    adhd_get_rules,
     adhd_main_check,
     adhd_mcp_change_check,
     adhd_mcp_change_prepare,
@@ -248,3 +250,21 @@ async def test_adhd_start_heartbeat(temp_bus: Path) -> None:
     # Second call should report already running
     result2 = await adhd_start_heartbeat()
     assert "already running" in result2.lower()
+
+
+# ---------------------------------------------------------------------------
+# Self-describing rules
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_adhd_get_rules() -> None:
+    """adhd_get_rules returns valid JSON with expected structure."""
+    result = await adhd_get_rules()
+    data = json.loads(result)
+    assert data["package"] == "adhd"
+    assert "protocols" in data
+    assert "message_types" in data
+    assert "env_vars" in data
+    assert "tools" in data
+    assert data["protocols"]["heartbeat"]["interval_minutes"] == 10

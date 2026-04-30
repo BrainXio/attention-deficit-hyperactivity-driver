@@ -66,6 +66,7 @@ The sole interface is `adhd-mcp`, a FastMCP stdio server registered via `.mcp.js
 | `adhd_mcp_change_prepare` | Signal server change starting   | Announcing you're about to modify code      |
 | `adhd_mcp_change_ready`   | Signal server change complete   | Letting others know the server is back      |
 | `adhd_mcp_change_check`   | Check for changes in progress   | Checking if any server is being modified    |
+| `adhd_get_rules`          | Return protocol rules           | Learning how the bus works                  |
 
 ## Installation
 
