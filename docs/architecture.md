@@ -54,13 +54,13 @@ repo-root/
 
 ## Environment Variables
 
-| Variable                | Purpose                                                    |
-| ----------------------- | ---------------------------------------------------------- |
+| Variable                | Purpose                                                     |
+| ----------------------- | ----------------------------------------------------------- |
 | `ADHD_BUS_PATH`         | Storage directory prefix (default: `~/.brainxio/adhd`)      |
 | `ADHD_BUS_SLUG`         | Bus name/key in that directory (default: git toplevel name) |
-| `ADHD_SESSION_ID`       | Fixed session identifier (default: random 8-char UUID)     |
-| `ADHD_AGENT_ID`         | Agent identifier (default: `agent-{session_id}`)           |
-| `ADHD_ENABLE_SUPPORTER` | Set to `1` to mark session as a supporter (additive)       |
+| `ADHD_SESSION_ID`       | Fixed session identifier (default: random 8-char UUID)      |
+| `ADHD_AGENT_ID`         | Agent identifier (default: `agent-{session_id}`)            |
+| `ADHD_ENABLE_SUPPORTER` | Set to `1` to mark session as a supporter (additive)        |
 
 ### Cross-Repo Coordination
 

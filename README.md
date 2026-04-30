@@ -102,11 +102,11 @@ The bus lives at `~/.brainxio/adhd/{repo-slug}/bus.jsonl`. This centralizes coor
 
 ### Environment Variables
 
-| Variable                | Purpose                                     |
-| ----------------------- | ------------------------------------------- |
-| `ADHD_BUS_PATH`         | Storage directory prefix (default: `~/.brainxio/adhd`) |
+| Variable                | Purpose                                                     |
+| ----------------------- | ----------------------------------------------------------- |
+| `ADHD_BUS_PATH`         | Storage directory prefix (default: `~/.brainxio/adhd`)      |
 | `ADHD_BUS_SLUG`         | Bus name/key in that directory (default: git toplevel name) |
-| `ADHD_ENABLE_SUPPORTER` | Mark this session as a supporter (additive) |
+| `ADHD_ENABLE_SUPPORTER` | Mark this session as a supporter (additive)                 |
 
 ### Cross-Repo Coordination
 
