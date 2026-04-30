@@ -78,20 +78,20 @@ The sole interface is `adhd-mcp`, a FastMCP stdio server. All agent interactions
 
 ### Tools
 
-| Tool                | Purpose                             |
-| ------------------- | ----------------------------------- |
-| `adhd_signin`       | Register session on the bus         |
-| `adhd_signout`      | Deregister session                  |
-| `adhd_read`         | Read/filter messages                |
-| `adhd_post`         | Post a generic message              |
-| `adhd_send`         | Send message to specific agent      |
-| `adhd_main_check`   | Check current main session          |
+| Tool                | Purpose                                             |
+| ------------------- | --------------------------------------------------- |
+| `adhd_signin`       | Register session on the bus                         |
+| `adhd_signout`      | Deregister session                                  |
+| `adhd_read`         | Read/filter messages                                |
+| `adhd_post`         | Post a generic message                              |
+| `adhd_send`         | Send message to specific agent                      |
+| `adhd_main_check`   | Check current main session                          |
 | `adhd_main_claim`   | Claim coordinator role (requires ADHD_ALLOW_MAIN=1) |
-| `adhd_main_release` | Release coordinator role            |
-| `adhd_main_elect`   | Auto-elect oldest active session    |
-| `adhd_validate`     | Validate bus integrity              |
-| `adhd_archive`      | Archive old messages                |
-| `adhd_resolve`      | Print canonical bus path            |
+| `adhd_main_release` | Release coordinator role                            |
+| `adhd_main_elect`   | Auto-elect oldest active session                    |
+| `adhd_validate`     | Validate bus integrity                              |
+| `adhd_archive`      | Archive old messages                                |
+| `adhd_resolve`      | Print canonical bus path                            |
 
 ## Message Flow
 
