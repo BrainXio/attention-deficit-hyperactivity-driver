@@ -35,4 +35,8 @@ uv.lock
 
 # OS
 .DS_Store
+
+# Task files
+prompt.txt
+tasks.json
 .mcp.json
