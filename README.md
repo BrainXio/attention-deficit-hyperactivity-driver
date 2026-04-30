@@ -51,18 +51,18 @@ Types: `signin`, `signout`, `heartbeat`, `status`, `schema`, `dependency`, `ques
 
 The sole interface is `adhd-mcp`, a FastMCP stdio server registered via `.mcp.json`.
 
-| Tool                   | Purpose                          | ADHD Parallel                                      |
-| ---------------------- | -------------------------------- | -------------------------------------------------- |
-| `adhd_resolve`         | Find canonical bus path          | Knowing where you left your keys                   |
-| `adhd_validate`        | Validate JSONL schema            | Checking your work before submitting               |
-| `adhd_signin`          | Write signin message             | "I'm here, I'm going to do X"                      |
-| `adhd_signout`         | Write signout message            | "I'm done, here's what happened"                   |
-| `adhd_start_heartbeat` | Background heartbeat             | "Still alive, not blocked, making progress"        |
-| `adhd_post`            | Post generic message             | Sharing a thought with the group                   |
-| `adhd_read`            | Read/filter messages             | Catching up on what you missed                     |
-| `adhd_send`            | Send request to specific agent   | "Hey, can you help me with...?"                    |
-| `adhd_archive`         | Archive old messages             | Cleaning up your workspace                         |
-| `adhd_main_check`      | Check active supporter sessions  | Who's monitoring the room                          |
+| Tool                   | Purpose                         | ADHD Parallel                               |
+| ---------------------- | ------------------------------- | ------------------------------------------- |
+| `adhd_resolve`         | Find canonical bus path         | Knowing where you left your keys            |
+| `adhd_validate`        | Validate JSONL schema           | Checking your work before submitting        |
+| `adhd_signin`          | Write signin message            | "I'm here, I'm going to do X"               |
+| `adhd_signout`         | Write signout message           | "I'm done, here's what happened"            |
+| `adhd_start_heartbeat` | Background heartbeat            | "Still alive, not blocked, making progress" |
+| `adhd_post`            | Post generic message            | Sharing a thought with the group            |
+| `adhd_read`            | Read/filter messages            | Catching up on what you missed              |
+| `adhd_send`            | Send request to specific agent  | "Hey, can you help me with...?"             |
+| `adhd_archive`         | Archive old messages            | Cleaning up your workspace                  |
+| `adhd_main_check`      | Check active supporter sessions | Who's monitoring the room                   |
 
 ## Installation
 

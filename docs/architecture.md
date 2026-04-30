@@ -54,13 +54,13 @@ repo-root/
 
 ## Environment Variables
 
-| Variable                  | Purpose                                                    |
-| ------------------------- | ---------------------------------------------------------- |
-| `ADHD_BUS_PATH`           | Absolute path to bus file (overrides all derivation)       |
-| `ADHD_BUS_REPO_SLUG`      | Repo key in `.brainxio/adhd/` (default: git toplevel name) |
-| `ADHD_SESSION_ID`         | Fixed session identifier (default: random 8-char UUID)     |
-| `ADHD_AGENT_ID`           | Agent identifier (default: `agent-{session_id}`)           |
-| `ADHD_ENABLE_SUPPORTER`   | Set to `1` to mark session as a supporter (additive)       |
+| Variable                | Purpose                                                    |
+| ----------------------- | ---------------------------------------------------------- |
+| `ADHD_BUS_PATH`         | Absolute path to bus file (overrides all derivation)       |
+| `ADHD_BUS_REPO_SLUG`    | Repo key in `.brainxio/adhd/` (default: git toplevel name) |
+| `ADHD_SESSION_ID`       | Fixed session identifier (default: random 8-char UUID)     |
+| `ADHD_AGENT_ID`         | Agent identifier (default: `agent-{session_id}`)           |
+| `ADHD_ENABLE_SUPPORTER` | Set to `1` to mark session as a supporter (additive)       |
 
 ### Cross-Repo Coordination
 
@@ -78,17 +78,17 @@ The sole interface is `adhd-mcp`, a FastMCP stdio server. All agent interactions
 
 ### Tools
 
-| Tool                | Purpose                                                     |
-| ------------------- | ----------------------------------------------------------- |
-| `adhd_signin`       | Register session on the bus                                 |
-| `adhd_signout`      | Deregister session                                          |
-| `adhd_read`         | Read/filter messages                                        |
-| `adhd_post`         | Post a generic message                                      |
-| `adhd_send`         | Send message to specific agent                              |
-| `adhd_main_check`   | Check active supporter sessions                             |
-| `adhd_validate`     | Validate bus integrity                                      |
-| `adhd_archive`      | Archive old messages                                        |
-| `adhd_resolve`      | Print canonical bus path                                    |
+| Tool              | Purpose                         |
+| ----------------- | ------------------------------- |
+| `adhd_signin`     | Register session on the bus     |
+| `adhd_signout`    | Deregister session              |
+| `adhd_read`       | Read/filter messages            |
+| `adhd_post`       | Post a generic message          |
+| `adhd_send`       | Send message to specific agent  |
+| `adhd_main_check` | Check active supporter sessions |
+| `adhd_validate`   | Validate bus integrity          |
+| `adhd_archive`    | Archive old messages            |
+| `adhd_resolve`    | Print canonical bus path        |
 
 ## Message Flow
 

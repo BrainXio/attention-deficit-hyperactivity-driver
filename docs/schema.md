@@ -30,10 +30,10 @@ Every message on the bus must be a single-line JSON object with these fields:
 
 ### Lifecycle
 
-| Type        | Description           | Payload                                |
-| ----------- | --------------------- | -------------------------------------- |
+| Type        | Description           | Payload                              |
+| ----------- | --------------------- | ------------------------------------ |
 | `signin`    | Agent session started | `{ "pid": 1234, "supporter": true }` |
-| `signout`   | Agent session ended   | `{}`                                   |
+| `signout`   | Agent session ended   | `{}`                                 |
 | `heartbeat` | Periodic alive signal | `{ "pid": 1234, "supporter": true }` |
 
 ### Supporter Flag
