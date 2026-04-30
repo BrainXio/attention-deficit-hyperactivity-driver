@@ -65,7 +65,7 @@ def _try_telegram(title: str, body: str) -> bool:
             headers={"Content-Type": "application/json"},
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
-            return resp.status == 200
+            return bool(resp.status == 200)
     except Exception:
         logger.debug("Telegram notification failed", exc_info=True)
         return False
