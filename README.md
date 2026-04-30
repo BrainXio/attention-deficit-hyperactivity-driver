@@ -73,7 +73,7 @@ ADHD is distributed as a Python package. The `.mcp.json` in the repo root auto-s
 
 ```bash
 # Clone the repo
-git clone https://github.com/brainxio/adhd
+git clone https://github.com/brainxio/attention-deficit-hyperactivity-driver
 
 # Install the package
 uv pip install -e .

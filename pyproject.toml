@@ -31,9 +31,9 @@ dependencies = [
 adhd-mcp = "adhd.mcp_server:main"
 
 [project.urls]
-Homepage = "https://github.com/BrainXio/adhd"
-Documentation = "https://github.com/BrainXio/adhd/tree/main/docs"
-Repository = "https://github.com/BrainXio/adhd"
+Homepage = "https://github.com/BrainXio/attention-deficit-hyperactivity-driver"
+Documentation = "https://github.com/BrainXio/attention-deficit-hyperactivity-driver/tree/main/docs"
+Repository = "https://github.com/BrainXio/attention-deficit-hyperactivity-driver"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/adhd"]

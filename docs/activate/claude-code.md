@@ -4,7 +4,7 @@
 
 ADHD must be installed in the repository you are working on. The `.mcp.json` in the repo root references `adhd-mcp` from the local package.
 
-If the repo already contains ADHD (e.g. the `brainxio/adhd` repo itself), install it:
+If the repo already contains ADHD (e.g. the `brainxio/attention-deficit-hyperactivity-driver` repo itself), install it:
 
 ```bash
 uv pip install -e .
@@ -13,7 +13,7 @@ uv pip install -e .
 If you are adding ADHD to a different repo, clone it first:
 
 ```bash
-git clone https://github.com/brainxio/adhd /tmp/adhd
+git clone https://github.com/brainxio/attention-deficit-hyperactivity-driver /tmp/adhd
 uv pip install -e /tmp/adhd
 ```
 

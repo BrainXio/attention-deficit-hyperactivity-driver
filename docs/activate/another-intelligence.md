@@ -6,7 +6,7 @@ ADHD must be installed in the repository you are working on.
 
 ```bash
 # Option A: Install from a local clone
-git clone https://github.com/brainxio/adhd /tmp/adhd
+git clone https://github.com/brainxio/attention-deficit-hyperactivity-driver /tmp/adhd
 uv pip install -e /tmp/adhd
 
 # Option B: Install from GitHub Packages (requires authentication)
