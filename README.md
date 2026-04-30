@@ -2,7 +2,7 @@
 
 > **Attention Deficit Hyperactivity Driver** (ADHD) is the executive function layer for multi-agent AI workflows.
 >
-> It coordinates multiple parallel Claude Code sessions that would otherwise operate in isolation — adding the missing conductor that keeps parallel processes from colliding.
+> It coordinates multiple parallel agent sessions that would otherwise operate in isolation — adding the missing conductor that keeps parallel processes from colliding.
 
 ## The ADHD Parallel
 
