@@ -12,13 +12,17 @@ from typing import Any
 
 
 def resolve() -> Path:
-    """Return the absolute path to the ADHD bus file."""
-    explicit = os.environ.get("ADHD_BUS_PATH")
-    if explicit:
-        return Path(explicit).expanduser().resolve()
+    """Return the absolute path to the ADHD bus file.
 
-    repo_slug = os.environ.get("ADHD_BUS_REPO_SLUG")
-    if not repo_slug:
+    Path resolution order:
+    1. ADHD_BUS_PATH env var (storage directory prefix, default: ~/.brainxio/adhd/)
+    2. ADHD_BUS_SLUG env var (bus name, default: git toplevel basename)
+    3. Full path: {ADHD_BUS_PATH}/{ADHD_BUS_SLUG}/bus.jsonl
+    """
+    base_dir = Path(os.environ.get("ADHD_BUS_PATH", "~/.brainxio/adhd")).expanduser()
+
+    bus_name = os.environ.get("ADHD_BUS_SLUG")
+    if not bus_name:
         try:
             toplevel = subprocess.run(
                 ["git", "rev-parse", "--show-toplevel"],
@@ -26,11 +30,11 @@ def resolve() -> Path:
                 text=True,
                 check=True,
             ).stdout.strip()
-            repo_slug = Path(toplevel).name
+            bus_name = Path(toplevel).name
         except subprocess.CalledProcessError:
-            repo_slug = "default"
+            bus_name = "default"
 
-    bus_dir = Path.home() / ".brainxio" / "adhd" / repo_slug
+    bus_dir = base_dir / bus_name
     bus_dir.mkdir(parents=True, exist_ok=True)
     return bus_dir / "bus.jsonl"
 

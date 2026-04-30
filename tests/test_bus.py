@@ -46,12 +46,12 @@ def test_resolve_default(tmp_path: Path) -> None:
     toplevel = tmp_path / "my-project"
     toplevel.mkdir()
 
-    with patch.dict(os.environ, {}, clear=True):
-        with patch("adhd.bus.Path.home", return_value=fake_home):
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value.stdout = str(toplevel) + "\n"
-                mock_run.return_value.returncode = 0
-                result = bus.resolve()
+    env = {"HOME": str(fake_home)}
+    with patch.dict(os.environ, env, clear=True):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.stdout = str(toplevel) + "\n"
+            mock_run.return_value.returncode = 0
+            result = bus.resolve()
 
     expected = fake_home / ".brainxio" / "adhd" / "my-project" / "bus.jsonl"
     assert result == expected
@@ -59,19 +59,18 @@ def test_resolve_default(tmp_path: Path) -> None:
 
 
 def test_resolve_adhd_bus_path_override(tmp_path: Path) -> None:
-    custom = tmp_path / "custom-bus.jsonl"
-    custom.write_text("")
-    with patch.dict(os.environ, {"ADHD_BUS_PATH": str(custom)}):
+    custom_dir = tmp_path / "custom-store"
+    with patch.dict(os.environ, {"ADHD_BUS_PATH": str(custom_dir), "ADHD_BUS_SLUG": "mybus"}):
         result = bus.resolve()
-    assert result == custom.resolve()
+    assert result == (custom_dir / "mybus" / "bus.jsonl").resolve()
 
 
-def test_resolve_adhd_bus_repo_slug(tmp_path: Path) -> None:
+def test_resolve_adhd_bus_slug(tmp_path: Path) -> None:
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    with patch.dict(os.environ, {"ADHD_BUS_REPO_SLUG": "projects"}, clear=True):
-        with patch("adhd.bus.Path.home", return_value=fake_home):
-            result = bus.resolve()
+    env = {"HOME": str(fake_home), "ADHD_BUS_SLUG": "projects"}
+    with patch.dict(os.environ, env, clear=True):
+        result = bus.resolve()
     expected = fake_home / ".brainxio" / "adhd" / "projects" / "bus.jsonl"
     assert result == expected
 
@@ -79,10 +78,10 @@ def test_resolve_adhd_bus_repo_slug(tmp_path: Path) -> None:
 def test_resolve_fallback_no_git(tmp_path: Path) -> None:
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    with patch.dict(os.environ, {}, clear=True):
-        with patch("adhd.bus.Path.home", return_value=fake_home):
-            with patch("subprocess.run", side_effect=subprocess.CalledProcessError(1, "git")):
-                result = bus.resolve()
+    env = {"HOME": str(fake_home)}
+    with patch.dict(os.environ, env, clear=True):
+        with patch("subprocess.run", side_effect=subprocess.CalledProcessError(1, "git")):
+            result = bus.resolve()
     expected = fake_home / ".brainxio" / "adhd" / "default" / "bus.jsonl"
     assert result == expected
 
