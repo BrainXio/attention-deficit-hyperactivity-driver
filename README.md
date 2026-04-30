@@ -102,18 +102,18 @@ The bus lives at `~/.brainxio/adhd/{repo-slug}/bus.jsonl`. This centralizes coor
 
 ### Environment Variables
 
-| Variable                | Purpose                                     |
-| ----------------------- | ------------------------------------------- |
-| `ADHD_BUS_PATH`         | Absolute path override for advanced use     |
-| `ADHD_BUS_REPO_SLUG`    | Join a specific repo's bus from any session |
-| `ADHD_ENABLE_SUPPORTER` | Mark this session as a supporter (additive) |
+| Variable                | Purpose                                                     |
+| ----------------------- | ----------------------------------------------------------- |
+| `ADHD_BUS_PATH`         | Storage directory prefix (default: `~/.brainxio/adhd`)      |
+| `ADHD_BUS_SLUG`         | Bus name/key in that directory (default: git toplevel name) |
+| `ADHD_ENABLE_SUPPORTER` | Mark this session as a supporter (additive)                 |
 
 ### Cross-Repo Coordination
 
-Set `ADHD_BUS_REPO_SLUG=projects` when in `ai-o4a/` to join the master coordination bus:
+Set `ADHD_BUS_SLUG=projects` when in `ai-o4a/` to join the master coordination bus:
 
 ```bash
-ADHD_BUS_REPO_SLUG=projects uv run adhd-mcp
+ADHD_BUS_SLUG=projects uv run adhd-mcp
 ```
 
 ## Design Philosophy

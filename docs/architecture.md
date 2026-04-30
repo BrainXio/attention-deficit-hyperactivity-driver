@@ -17,7 +17,7 @@ The bus is a simple append-only file of JSON lines. This is the same format used
 
 ### 2. Centralized Bus Path
 
-The bus lives at `~/.brainxio/adhd/{repo-slug}/bus.jsonl`. This centralizes coordination state outside any single repo, enabling cross-repo sessions to share a bus. The repo slug is derived from the git toplevel directory name, overridable via `ADHD_BUS_REPO_SLUG`.
+The bus lives at `~/.brainxio/adhd/{name}/bus.jsonl`. This centralizes coordination state outside any single repo, enabling cross-repo sessions to share a bus. The name is derived from the git toplevel directory name, overridable via `ADHD_BUS_NAME`.
 
 ### 3. Supporter Sessions
 
@@ -54,20 +54,20 @@ repo-root/
 
 ## Environment Variables
 
-| Variable                | Purpose                                                    |
-| ----------------------- | ---------------------------------------------------------- |
-| `ADHD_BUS_PATH`         | Absolute path to bus file (overrides all derivation)       |
-| `ADHD_BUS_REPO_SLUG`    | Repo key in `.brainxio/adhd/` (default: git toplevel name) |
-| `ADHD_SESSION_ID`       | Fixed session identifier (default: random 8-char UUID)     |
-| `ADHD_AGENT_ID`         | Agent identifier (default: `agent-{session_id}`)           |
-| `ADHD_ENABLE_SUPPORTER` | Set to `1` to mark session as a supporter (additive)       |
+| Variable                | Purpose                                                     |
+| ----------------------- | ----------------------------------------------------------- |
+| `ADHD_BUS_PATH`         | Storage directory prefix (default: `~/.brainxio/adhd`)      |
+| `ADHD_BUS_SLUG`         | Bus name/key in that directory (default: git toplevel name) |
+| `ADHD_SESSION_ID`       | Fixed session identifier (default: random 8-char UUID)      |
+| `ADHD_AGENT_ID`         | Agent identifier (default: `agent-{session_id}`)            |
+| `ADHD_ENABLE_SUPPORTER` | Set to `1` to mark session as a supporter (additive)        |
 
 ### Cross-Repo Coordination
 
 To join another repo's bus from any session:
 
 ```bash
-ADHD_BUS_REPO_SLUG=projects uv run adhd-mcp
+ADHD_BUS_SLUG=projects uv run adhd-mcp
 ```
 
 This is useful when `ai-o4a/` agents need to coordinate with the master `projects` bus.
