@@ -66,6 +66,7 @@ The sole interface is `adhd-mcp`, a FastMCP stdio server registered via `.mcp.js
 | `adhd_mcp_change_prepare` | Signal server change starting   | Announcing you're about to modify code      |
 | `adhd_mcp_change_ready`   | Signal server change complete   | Letting others know the server is back      |
 | `adhd_mcp_change_check`   | Check for changes in progress   | Checking if any server is being modified    |
+| `adhd_get_rules`          | Return protocol rules           | Learning how the bus works                  |
 
 ## Installation
 
@@ -105,11 +106,12 @@ The bus lives at `~/.brainxio/adhd/{repo-slug}/bus.jsonl`. This centralizes coor
 
 ### Environment Variables
 
-| Variable                | Purpose                                                     |
-| ----------------------- | ----------------------------------------------------------- |
-| `ADHD_BUS_PATH`         | Storage directory prefix (default: `~/.brainxio/adhd`)      |
-| `ADHD_BUS_SLUG`         | Bus name/key in that directory (default: git toplevel name) |
-| `ADHD_ENABLE_SUPPORTER` | Mark this session as a supporter (additive)                 |
+| Variable                | Purpose                                                              |
+| ----------------------- | -------------------------------------------------------------------- |
+| `ADHD_BUS_PATH`         | Storage directory prefix (default: `~/.brainxio/adhd`)               |
+| `ADHD_BUS_SLUG`         | Bus name/key in that directory (default: git toplevel name)          |
+| `ADHD_PERF_LEVEL`       | Supporter capability: `low`, `medium`, or `high` (default: `medium`) |
+| `ADHD_ENABLE_SUPPORTER` | Mark this session as a supporter (additive)                          |
 
 ### Cross-Repo Coordination
 

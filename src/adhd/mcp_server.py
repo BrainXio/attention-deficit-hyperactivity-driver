@@ -19,6 +19,7 @@ from adhd.bus import (
     current_branch,
     get_decision_history,
     get_pending_decisions,
+    get_perf_level,
     hitl_approve_gonogo,
     hitl_claim_decision,
     hitl_provide_rpe,
@@ -41,6 +42,7 @@ from adhd.bus import (
 from adhd.bus import (
     send as bus_send,
 )
+from adhd.rules import get_rules
 
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 
@@ -327,6 +329,22 @@ async def adhd_human_decision_history(decision_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Self-describing rules
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def adhd_get_rules() -> str:
+    """Return structured protocol rules for the ADHD bus.
+
+    Returns a JSON object describing all protocols (heartbeat, supporter,
+    mcp-change, merge-queue, HITL), message types, env vars, and tools.
+    Agents can call this at startup to learn how the bus works.
+    """
+    return json.dumps(get_rules(), indent=2)
+
+
+# ---------------------------------------------------------------------------
 # Phase 3: Heartbeat lifecycle (deferred for validation)
 # ---------------------------------------------------------------------------
 _heartbeat_task: asyncio.Task[None] | None = None
@@ -338,6 +356,7 @@ async def heartbeat_loop() -> None:
         payload: dict[str, object] = {}
         if os.environ.get("ADHD_ENABLE_SUPPORTER"):
             payload["supporter"] = True
+            payload["perf_level"] = get_perf_level()
 
         write_message(
             {

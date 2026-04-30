@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def resolve() -> Path:
@@ -79,6 +82,22 @@ def current_branch() -> str:
 
 def now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+_PERF_LEVELS = frozenset({"low", "medium", "high"})
+
+
+def get_perf_level() -> str:
+    """Return the session performance level from ADHD_PERF_LEVEL env var.
+
+    Valid values: low, medium, high. Default: medium.
+    Invalid values log a warning and fall back to medium.
+    """
+    raw = os.environ.get("ADHD_PERF_LEVEL", "medium").lower()
+    if raw not in _PERF_LEVELS:
+        logger.warning("ADHD_PERF_LEVEL=%r invalid, falling back to 'medium'", raw)
+        return "medium"
+    return raw
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +267,7 @@ def signin() -> str:
     payload: dict[str, Any] = {}
     if os.environ.get("ADHD_ENABLE_SUPPORTER"):
         payload["supporter"] = True
+        payload["perf_level"] = get_perf_level()
 
     write_message(
         {

@@ -165,6 +165,53 @@ def test_agent_id_default() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Performance level
+# ---------------------------------------------------------------------------
+
+
+def test_get_perf_level_default() -> None:
+    """get_perf_level returns 'medium' when ADHD_PERF_LEVEL is not set."""
+    with patch.dict(os.environ, {}, clear=True):
+        assert bus.get_perf_level() == "medium"
+
+
+def test_get_perf_level_from_env() -> None:
+    """get_perf_level returns the value from ADHD_PERF_LEVEL env var."""
+    with patch.dict(os.environ, {"ADHD_PERF_LEVEL": "high"}):
+        assert bus.get_perf_level() == "high"
+    with patch.dict(os.environ, {"ADHD_PERF_LEVEL": "low"}):
+        assert bus.get_perf_level() == "low"
+
+
+def test_get_perf_level_case_insensitive() -> None:
+    """get_perf_level handles mixed case."""
+    with patch.dict(os.environ, {"ADHD_PERF_LEVEL": "HIGH"}):
+        assert bus.get_perf_level() == "high"
+
+
+def test_get_perf_level_invalid() -> None:
+    """get_perf_level falls back to 'medium' for invalid values."""
+    with patch.dict(os.environ, {"ADHD_PERF_LEVEL": "extreme"}):
+        assert bus.get_perf_level() == "medium"
+
+
+def test_signin_includes_perf_level_when_supporter(temp_bus: Path) -> None:
+    """Signin payload includes perf_level when ADHD_ENABLE_SUPPORTER is set."""
+    with patch.dict(os.environ, {"ADHD_ENABLE_SUPPORTER": "1", "ADHD_PERF_LEVEL": "low"}):
+        bus.signin()
+    msgs = bus.read_messages(type_filter="signin")
+    assert msgs[0]["payload"]["supporter"] is True
+    assert msgs[0]["payload"]["perf_level"] == "low"
+
+
+def test_signin_no_perf_level_when_not_supporter(temp_bus: Path) -> None:
+    """Signin payload does NOT include perf_level when not a supporter."""
+    bus.signin()
+    msgs = bus.read_messages(type_filter="signin")
+    assert "perf_level" not in msgs[0]["payload"]
+
+
+# ---------------------------------------------------------------------------
 # Bus I/O
 # ---------------------------------------------------------------------------
 

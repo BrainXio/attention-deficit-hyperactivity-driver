@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ import adhd.bus as bus
 import adhd.mcp_server as mcp_server_mod
 from adhd.mcp_server import (
     adhd_archive,
+    adhd_get_rules,
     adhd_main_check,
     adhd_mcp_change_check,
     adhd_mcp_change_prepare,
@@ -125,6 +127,21 @@ async def test_adhd_main_check_with_supporter(temp_bus: Path, allow_supporter: A
 
 
 # ---------------------------------------------------------------------------
+# Performance level
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_adhd_signin_includes_perf_level(temp_bus: Path, allow_supporter: Any) -> None:
+    """Supporter signin includes perf_level in payload."""
+    with patch.dict(os.environ, {"ADHD_PERF_LEVEL": "low"}):
+        result = await adhd_signin()
+    assert "supporter" in result.lower()
+    msgs = bus.read_messages(type_filter="signin")
+    assert msgs[0]["payload"]["perf_level"] == "low"
+
+
+# ---------------------------------------------------------------------------
 # MCP change notification tools
 # ---------------------------------------------------------------------------
 
@@ -233,3 +250,21 @@ async def test_adhd_start_heartbeat(temp_bus: Path) -> None:
     # Second call should report already running
     result2 = await adhd_start_heartbeat()
     assert "already running" in result2.lower()
+
+
+# ---------------------------------------------------------------------------
+# Self-describing rules
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_adhd_get_rules() -> None:
+    """adhd_get_rules returns valid JSON with expected structure."""
+    result = await adhd_get_rules()
+    data = json.loads(result)
+    assert data["package"] == "adhd"
+    assert "protocols" in data
+    assert "message_types" in data
+    assert "env_vars" in data
+    assert "tools" in data
+    assert data["protocols"]["heartbeat"]["interval_minutes"] == 10

@@ -3,7 +3,7 @@
   "package": "adhd",
   "role": "Coordination nervous system — multi-agent message bus",
   "last_updated": "2026-04-30",
-  "status": "core-stable",
+  "status": "in-progress",
   "completed": [
     "Append-only JSONL bus with resolve, I/O, validation, archival",
     "MCP server with 10+ tools (signin, signout, heartbeat, post, read, send, archive, validate, resolve, main_check)",
@@ -16,7 +16,26 @@
     "MCP change notification protocol (preparing/ready) on bus",
     "Merge-queue claim protocol on bus (claim/release with 5-min TTL)",
     "Bus path resolution: detect parent repo when inside git submodule via --show-superproject-working-tree",
-    "pyproject.toml aligned with BrainXio standard (pydocstyle, ruff format, slow marker)"
+    "pyproject.toml aligned with BrainXio standard (pydocstyle, ruff format, slow marker)",
+    "HITL MCP server extension: human_claim_decision, human_provide_rpe, human_approve_gonogo, human_split_duties, pending_decisions, decision_history (on feat/hitl-bus-fixes branch, PR #12)"
+  ],
+  "in_progress": [
+    {
+      "id": "adhd-7",
+      "priority": 1,
+      "subject": "Expose ADHD rules/skills via MCP for self-describing bus usage",
+      "description": "Partial implementation exists on main branch (uncommitted): src/adhd/rules.py with full protocol schema, mcp_server.py wired with adhd_get_rules tool, and integration test. Must be committed AFTER feat/hitl-bus-fixes is merged, since rules.py references HITL tools that don't exist on main yet.",
+      "files": ["src/adhd/mcp_server.py", "src/adhd/rules.py", "tests/test_mcp_integration.py"],
+      "acceptance": [
+        "New MCP tool adhd_get_rules returns structured protocol rules",
+        "Rules include: heartbeat interval, supporter model semantics, mcp-change protocol, env var descriptions",
+        "Rules are versioned and match the current bus schema",
+        "Tool is discoverable by MCP clients at runtime"
+      ],
+      "dependencies": ["adhd-10"],
+      "state": "partial-on-main-uncommitted",
+      "cross_references": ["asd-6", "ocd-6"]
+    }
   ],
   "pending": [
     {
@@ -60,7 +79,39 @@
         "State tracked via append-only bus messages (no DB, no cloud)",
         "Tests cover claim/unclaim, rpe recording, approve/reject, and duty split"
       ],
-      "dependencies": []
+      "dependencies": [],
+      "state": "complete-on-feat/hitl-bus-fixes",
+      "pr": "https://github.com/BrainXio/attention-deficit-hyperactivity-driver/pull/12"
+    },
+    {
+      "id": "adhd-9",
+      "priority": 2,
+      "subject": "Implement HITL notification system (desktop + Telegram)",
+      "description": "When a human-in-the-loop decision is claimed on the bus, the human must be notified immediately. Implement desktop notifications via notify-send (Linux) and optional Telegram Bot API fallback. Provide a polling script (scripts/hitl-notify.py) that checks the bus for pending HITL decisions and alerts the human. Must gracefully degrade if neither channel is available.",
+      "files": ["src/adhd/notifications.py", "scripts/hitl-notify.py", "README.md", "docs/architecture.md"],
+      "acceptance": [
+        "notify-send works on Linux desktop (ADHD_NOTIFY_URGENCY env var)",
+        "Telegram fallback via TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID env vars",
+        "Graceful degradation: logs warning if no notification channel available",
+        "Polling script supports --daemon mode with configurable interval",
+        "Tests for notification helpers (mocked subprocess / urllib)"
+      ],
+      "dependencies": ["adhd-10"]
+    },
+    {
+      "id": "adhd-10",
+      "priority": 1,
+      "subject": "Merge feat/hitl-bus-fixes into main and reconcile with adhd-7",
+      "description": "CRITICAL COORDINATION TASK. The feat/hitl-bus-fixes branch contains the complete HITL implementation (adhd-8), bus path fix, merge-queue protocol, and pyproject.toml alignment. Main branch has uncommitted adhd-7 work (rules.py + get_rules tool). The merge must happen first because rules.py on main references HITL tools that don't exist there yet. An agent must: (1) merge feat/hitl-bus-fixes into main, (2) verify rules.py references are accurate post-merge, (3) commit the adhd-7 work.",
+      "files": ["src/adhd/mcp_server.py", "src/adhd/rules.py", "tests/"],
+      "acceptance": [
+        "feat/hitl-bus-fixes merged into main with no conflicts",
+        "adhd_get_rules tool returns accurate schema including HITL tools",
+        "All tests pass post-merge (pytest -q)",
+        "lint and format checks pass (ruff check ., ruff format --check .)"
+      ],
+      "dependencies": [],
+      "blocks": ["adhd-7", "adhd-9"]
     },
     {
       "id": "adhd-4",
@@ -84,37 +135,7 @@
         "README tool table updated with merge-queue and perf_level notes",
         "Architecture docs include merge-queue protocol section"
       ],
-      "dependencies": ["adhd-1", "adhd-3"]
-    },
-    {
-      "id": "adhd-7",
-      "priority": 1,
-      "subject": "Expose ADHD rules/skills via MCP for self-describing bus usage",
-      "description": "The ADHD MCP server (or package) should deliver skills and rules on how to work with the bus natively. Any agent can query ADHD for the current protocol rules (signin/signout flow, heartbeat cadence, mcp-change coordination, supporter responsibilities, env var reference) instead of relying on external docs. This makes the bus self-describing. **Cross-package pattern:** Coordinate with ASD (asd-6) and OCD (ocd-6) to implement a unified `{package}_get_rules` pattern — implement once, replicate.",
-      "files": ["src/adhd/mcp_server.py", "src/adhd/rules.py", "README.md"],
-      "acceptance": [
-        "New MCP tool adhd_get_rules returns structured protocol rules",
-        "Rules include: heartbeat interval, supporter model semantics, mcp-change protocol, env var descriptions",
-        "Rules are versioned and match the current bus schema",
-        "Tool is discoverable by MCP clients at runtime"
-      ],
-      "dependencies": [],
-      "cross_references": ["asd-6", "ocd-6"]
-    },
-    {
-      "id": "adhd-9",
-      "priority": 2,
-      "subject": "Implement HITL notification system (desktop + Telegram)",
-      "description": "When a human-in-the-loop decision is claimed on the bus, the human must be notified immediately. Implement desktop notifications via notify-send (Linux) and optional Telegram Bot API fallback. Provide a polling script (scripts/hitl-notify.py) that checks the bus for pending HITL decisions and alerts the human. Must gracefully degrade if neither channel is available.",
-      "files": ["src/adhd/notifications.py", "scripts/hitl-notify.py", "README.md", "docs/architecture.md"],
-      "acceptance": [
-        "notify-send works on Linux desktop (ADHD_NOTIFY_URGENCY env var)",
-        "Telegram fallback via TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID env vars",
-        "Graceful degradation: logs warning if no notification channel available",
-        "Polling script supports --daemon mode with configurable interval",
-        "Tests for notification helpers (mocked subprocess / urllib)"
-      ],
-      "dependencies": ["adhd-8"]
+      "dependencies": ["adhd-1", "adhd-10"]
     }
   ]
 }
