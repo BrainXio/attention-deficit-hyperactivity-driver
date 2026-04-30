@@ -63,7 +63,7 @@ The sole interface is `adhd-mcp`, a FastMCP stdio server registered via `.mcp.js
 | `adhd_send`            | Send request to specific agent   | "Hey, can you help me with...?"             |
 | `adhd_archive`         | Archive old messages             | Cleaning up your workspace                  |
 | `adhd_main_check`      | Check who is main                | The one person keeping the meeting on track |
-| `adhd_main_claim`      | Claim coordinator role           | Taking charge (human only)                  |
+| `adhd_main_claim`      | Claim coordinator role           | Taking charge (requires ADHD_ALLOW_MAIN=1)  |
 | `adhd_main_release`    | Release coordinator role         | Handing off the baton                       |
 | `adhd_main_elect`      | Auto-elect oldest active session | Emergency backup plan                       |
 
@@ -81,10 +81,10 @@ uv pip install -e .
 
 ## Usage
 
-### Claim the coordinator role (only the user should do this)
+### Claim the coordinator role (requires ADHD_ALLOW_MAIN=1)
 
 ```
-adhd_main_claim
+ADHD_ALLOW_MAIN=1 adhd_main_claim
 ```
 
 ### Check who is coordinating
@@ -128,6 +128,6 @@ ADHD_BUS_REPO_SLUG=projects uv run adhd-mcp
 
 **Simple over smart.** The bus is append-only JSONL. No server, no database, no network. If it works for `git reflog`, it works for agent coordination.
 
-**Explicit over automatic.** The main session must be claimed by a human. Agents don't self-elect into coordination roles — that's how you get coordinator ADHD.
+**Explicit over automatic.** The main session must be claimed explicitly via `ADHD_ALLOW_MAIN=1`. Agents don't self-elect into coordination roles — that's how you get coordinator ADHD.
 
 **Graceful degradation.** If the bus is missing, agents continue working solo. They just can't coordinate.
