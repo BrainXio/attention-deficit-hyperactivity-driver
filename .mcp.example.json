@@ -2,7 +2,7 @@
   "mcpServers": {
     "adhd": {
       "command": "uv",
-      "args": ["--directory", ".", "run", "adhd-mcp"]
+      "args": ["run", "adhd-mcp"]
     }
   }
 }
