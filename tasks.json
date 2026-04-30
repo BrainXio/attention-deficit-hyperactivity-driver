@@ -100,6 +100,21 @@
       ],
       "dependencies": [],
       "cross_references": ["asd-6", "ocd-6"]
+    },
+    {
+      "id": "adhd-9",
+      "priority": 2,
+      "subject": "Implement HITL notification system (desktop + Telegram)",
+      "description": "When a human-in-the-loop decision is claimed on the bus, the human must be notified immediately. Implement desktop notifications via notify-send (Linux) and optional Telegram Bot API fallback. Provide a polling script (scripts/hitl-notify.py) that checks the bus for pending HITL decisions and alerts the human. Must gracefully degrade if neither channel is available.",
+      "files": ["src/adhd/notifications.py", "scripts/hitl-notify.py", "README.md", "docs/architecture.md"],
+      "acceptance": [
+        "notify-send works on Linux desktop (ADHD_NOTIFY_URGENCY env var)",
+        "Telegram fallback via TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID env vars",
+        "Graceful degradation: logs warning if no notification channel available",
+        "Polling script supports --daemon mode with configurable interval",
+        "Tests for notification helpers (mocked subprocess / urllib)"
+      ],
+      "dependencies": ["adhd-8"]
     }
   ]
 }
