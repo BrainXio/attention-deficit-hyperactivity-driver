@@ -377,6 +377,94 @@ def test_send(temp_bus: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# MCP change notification protocol
+# ---------------------------------------------------------------------------
+
+
+def test_prepare_mcp_change(temp_bus: Path) -> None:
+    """Preparing writes an event/mcp-change message with action=preparing."""
+    result = bus.prepare_mcp_change("asd")
+    assert "preparing" in result.lower()
+    msgs = bus.read_messages(topic_filter="mcp-change")
+    assert len(msgs) == 1
+    assert msgs[0]["type"] == "event"
+    assert msgs[0]["payload"]["server"] == "asd"
+    assert msgs[0]["payload"]["action"] == "preparing"
+
+
+def test_mark_mcp_change_ready(temp_bus: Path) -> None:
+    """Ready writes an event/mcp-change message with action=ready and commit."""
+    bus.prepare_mcp_change("ocd")
+    result = bus.mark_mcp_change_ready("ocd", "abc123def")
+    assert "ready" in result.lower()
+    msgs = bus.read_messages(topic_filter="mcp-change")
+    assert len(msgs) == 2
+    assert msgs[1]["payload"]["action"] == "ready"
+    assert msgs[1]["payload"]["commit"] == "abc123def"
+
+
+def test_mark_mcp_change_ready_no_commit(temp_bus: Path) -> None:
+    """Ready with no commit defaults to empty string."""
+    bus.prepare_mcp_change("adhd")
+    result = bus.mark_mcp_change_ready("adhd")
+    assert "ready" in result.lower()
+    msgs = bus.read_messages(topic_filter="mcp-change")
+    assert msgs[1]["payload"]["commit"] == ""
+
+
+def test_check_mcp_change_status_empty(temp_bus: Path) -> None:
+    """Empty bus returns empty list."""
+    assert bus.check_mcp_change_status() == []
+
+
+def test_check_mcp_change_status_in_flux(temp_bus: Path) -> None:
+    """A single preparing without ready shows the server as in flux."""
+    bus.prepare_mcp_change("asd")
+    status = bus.check_mcp_change_status()
+    assert len(status) == 1
+    assert status[0]["server"] == "asd"
+
+
+def test_check_mcp_change_status_ready_clears(temp_bus: Path) -> None:
+    """A ready message removes the server from the in-flux list."""
+    bus.prepare_mcp_change("ocd")
+    assert len(bus.check_mcp_change_status()) == 1
+    bus.mark_mcp_change_ready("ocd", "def456")
+    assert bus.check_mcp_change_status() == []
+
+
+def test_check_mcp_change_status_multiple_servers(temp_bus: Path) -> None:
+    """Multiple servers can be in flux simultaneously."""
+    bus.prepare_mcp_change("asd")
+    bus.prepare_mcp_change("ocd")
+    status = bus.check_mcp_change_status()
+    assert len(status) == 2
+    servers = {s["server"] for s in status}
+    assert servers == {"asd", "ocd"}
+
+
+def test_check_mcp_change_status_second_prepare_overwrites(temp_bus: Path) -> None:
+    """A second preparing for the same server replaces the first in the status."""
+    bus.prepare_mcp_change("asd")
+    bus.prepare_mcp_change("asd")
+    status = bus.check_mcp_change_status()
+    assert len(status) == 1
+    assert status[0]["server"] == "asd"
+
+
+def test_check_mcp_change_status_ready_without_preparing(temp_bus: Path) -> None:
+    """A ready without a preceding preparing is harmless (no-op on status)."""
+    bus.mark_mcp_change_ready("adhd", "abc")
+    assert bus.check_mcp_change_status() == []
+
+
+def test_check_mcp_change_status_ignores_non_mcp_change(temp_bus: Path) -> None:
+    """Non-mcp-change event messages are ignored by status check."""
+    bus.post(type_="event", topic="other-topic", payload={"server": "asd", "action": "preparing"})
+    assert bus.check_mcp_change_status() == []
+
+
+# ---------------------------------------------------------------------------
 # Archival
 # ---------------------------------------------------------------------------
 

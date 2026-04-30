@@ -303,6 +303,88 @@ def send(to: str, message: str, topic: str = "agent-request", type_: str = "requ
 
 
 # ---------------------------------------------------------------------------
+# MCP change notification protocol
+# ---------------------------------------------------------------------------
+
+
+def prepare_mcp_change(server: str) -> str:
+    """Write a preparing notification for MCP server code changes.
+
+    Other sessions reading the bus should pause tool calls to 'server'
+    until a matching ready message appears.
+    """
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": "event",
+            "topic": "mcp-change",
+            "payload": {
+                "server": server,
+                "action": "preparing",
+                "branch": current_branch(),
+                "session_id": session_id(),
+            },
+        }
+    )
+    return f"MCP change preparing for {server}."
+
+
+def mark_mcp_change_ready(server: str, commit: str = "") -> str:
+    """Write a ready notification, signaling the server code change is deployed.
+
+    Other sessions can resume tool calls to 'server'.
+    """
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": "event",
+            "topic": "mcp-change",
+            "payload": {
+                "server": server,
+                "action": "ready",
+                "commit": commit,
+                "session_id": session_id(),
+            },
+        }
+    )
+    return f"MCP change ready for {server}."
+
+
+def check_mcp_change_status() -> list[dict[str, object]]:
+    """Return list of servers currently in flux (preparing without matching ready).
+
+    Scans the bus for mcp-change events. A server is "in flux" when the most
+    recent mcp-change event for that server has action="preparing".
+    """
+    messages = read_messages(topic_filter="mcp-change", limit=500)
+    in_flux: dict[str, dict[str, object]] = {}
+
+    for msg in messages:
+        payload = msg.get("payload") or {}
+        server = payload.get("server")
+        if not isinstance(server, str):
+            continue
+        action = payload.get("action")
+        if action == "preparing":
+            in_flux[server] = {
+                "server": server,
+                "session_id": msg.get("session_id", ""),
+                "agent_id": msg.get("agent_id", ""),
+                "timestamp": msg.get("timestamp", ""),
+            }
+        elif action == "ready":
+            in_flux.pop(server, None)
+
+    return list(in_flux.values())
+
+
+# ---------------------------------------------------------------------------
 # Archival
 # ---------------------------------------------------------------------------
 

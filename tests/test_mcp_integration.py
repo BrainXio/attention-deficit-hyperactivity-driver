@@ -14,6 +14,9 @@ import adhd.mcp_server as mcp_server_mod
 from adhd.mcp_server import (
     adhd_archive,
     adhd_main_check,
+    adhd_mcp_change_check,
+    adhd_mcp_change_prepare,
+    adhd_mcp_change_ready,
     adhd_post,
     adhd_read,
     adhd_resolve,
@@ -119,6 +122,79 @@ async def test_adhd_main_check_with_supporter(temp_bus: Path, allow_supporter: A
     result = await adhd_main_check()
     assert "supporter" in result.lower()
     assert "agent-" in result
+
+
+# ---------------------------------------------------------------------------
+# MCP change notification tools
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_adhd_mcp_change_prepare(temp_bus: Path) -> None:
+    """adhd_mcp_change_prepare returns success message."""
+    result = await adhd_mcp_change_prepare(server="asd")
+    assert "preparing" in result.lower()
+    assert "asd" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_mcp_change_ready(temp_bus: Path) -> None:
+    """adhd_mcp_change_ready returns success message."""
+    await adhd_mcp_change_prepare(server="ocd")
+    result = await adhd_mcp_change_ready(server="ocd", commit="abc123")
+    assert "ready" in result.lower()
+    assert "ocd" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_mcp_change_check_empty(temp_bus: Path) -> None:
+    """adhd_mcp_change_check reports no servers when bus has no preparing."""
+    result = await adhd_mcp_change_check()
+    assert "No MCP servers" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_mcp_change_check_in_flux(temp_bus: Path) -> None:
+    """adhd_mcp_change_check reports in-flux server after a prepare."""
+    await adhd_mcp_change_prepare(server="asd")
+    result = await adhd_mcp_change_check()
+    assert "asd" in result
+    assert "in flux" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_adhd_mcp_change_check_cleared_after_ready(temp_bus: Path) -> None:
+    """adhd_mcp_change_check shows no servers after prepare + ready."""
+    await adhd_mcp_change_prepare(server="ocd")
+    await adhd_mcp_change_ready(server="ocd")
+    result = await adhd_mcp_change_check()
+    assert "No MCP servers" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_mcp_change_full_roundtrip(temp_bus: Path) -> None:
+    """End-to-end: prepare, check shows in-flux, ready, check shows clear."""
+    assert "No MCP servers" in await adhd_mcp_change_check()
+
+    await adhd_mcp_change_prepare(server="adhd")
+    check1 = await adhd_mcp_change_check()
+    assert "adhd" in check1
+
+    await adhd_mcp_change_ready(server="adhd", commit="deadbeef")
+    check2 = await adhd_mcp_change_check()
+    assert "No MCP servers" in check2
+
+
+@pytest.mark.asyncio
+async def test_adhd_post_rejects_protected_topic(temp_bus: Path) -> None:
+    """adhd_post rejects messages with topic='mcp-change'."""
+    result = await adhd_post(
+        type="event",
+        topic="mcp-change",
+        payload='{"server":"asd","action":"preparing"}',
+    )
+    assert "ERROR" in result
+    assert "protected" in result.lower()
 
 
 # ---------------------------------------------------------------------------
