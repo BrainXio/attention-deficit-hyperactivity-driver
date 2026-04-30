@@ -41,8 +41,8 @@ def temp_bus(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def allow_main() -> None:
-    """Set ADHD_ALLOW_MAIN for tests that need it."""
-    with patch.dict(os.environ, {"ADHD_ALLOW_MAIN": "1"}):
+    """Set ADHD_ENABLE_COORDINATOR for tests that need it."""
+    with patch.dict(os.environ, {"ADHD_ENABLE_COORDINATOR": "1"}):
         yield
 
 
