@@ -29,7 +29,8 @@
     "adhd-15: Agent-noise-threshold monitoring — get_noise_metrics, check_noise_threshold, adhd_noise_check tool, density warnings on bus",
     "adhd-17: Message signing — HMAC on each JSONL line (sign_message, verify_signature, adhd_verify_signature tool)",
     "adhd-20: Agent verification — Ed25519 cryptographic identity (generate_keypair, sign_challenge, verify_agent, identity proof in signin)",
-    "adhd-21: Capability tokens — Ed25519-signed authorization claims (issue_token, verify_token, adhd_issue_token, adhd_verify_token, token enforcement on adhd_post/adhd_send)"
+    "adhd-21: Capability tokens — Ed25519-signed authorization claims (issue_token, verify_token, adhd_issue_token, adhd_verify_token, token enforcement on adhd_post/adhd_send)",
+    "adhd-22: Bus access control — read/write role enforcement via token scopes (required_scope, _check_access, ADHD_ENFORCE_ACCESS_CONTROL)"
   ],
   "in_progress": [],
   "pending": [
@@ -73,9 +74,9 @@
       "id": "adhd-22",
       "subject": "Bus access control — read-only vs read-write roles",
       "description": "Enforce role-based access control at the bus level. Read-only agents can only call read/poll. Read-write agents can post/send. Roles encoded in capability tokens.",
-      "kanban_status": "backlog",
+      "kanban_status": "done",
       "priority": {"level": 2, "rpe_weight": 0.75, "value_score": 70},
-      "done": false,
+      "done": true,
       "dependencies": ["adhd-21"]
     },
     {
