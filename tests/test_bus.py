@@ -1379,6 +1379,8 @@ def test_lamport_persists_across_read_and_write(temp_bus: Path) -> None:
 
     bus.write_message(_sample_message())
     assert bus.get_lamport_time() == 8  # ticked on send
+
+
 # Bus snapshots
 # ---------------------------------------------------------------------------
 

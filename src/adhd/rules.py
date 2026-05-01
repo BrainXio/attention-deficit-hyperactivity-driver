@@ -156,7 +156,7 @@ def get_rules() -> dict[str, object]:
             {"tool": "adhd_human_split_duties", "purpose": "Human splits supporter duties"},
             {"tool": "adhd_gen_key", "purpose": "Generate Ed25519 keypair for an agent"},
             {"tool": "adhd_get_rules", "purpose": "Return these protocol rules"},
-{
+            {
                 "tool": "adhd_get_lamport_time",
                 "purpose": "Get current Lamport logical clock value",
             },
