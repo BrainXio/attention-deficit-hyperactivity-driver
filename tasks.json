@@ -40,7 +40,7 @@
       "description": "Add Lamport logical clock to each message for partial causal ordering across agents. Each agent increments its clock on send and updates on receive. Enable happens-before comparison between messages.",
       "kanban_status": "ready",
       "priority": {"level": 2, "rpe_weight": 0.7, "value_score": 70},
-      "done": false,
+      "done": true,
       "dependencies": ["adhd-17"]
     },
     {
@@ -92,9 +92,9 @@
       "id": "adhd-24",
       "subject": "Cross-bus bridging — forward messages between buses",
       "description": "Enable message forwarding between independent buses. Bridge rules define which message types/topics cross bus boundaries. Add adhd_bridge_register tool.",
-      "kanban_status": "backlog",
+      "kanban_status": "done",
       "priority": {"level": 3, "rpe_weight": 0.6, "value_score": 55},
-      "done": false,
+      "done": true,
       "dependencies": ["adhd-17", "adhd-23"]
     },
     {
