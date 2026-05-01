@@ -55,7 +55,9 @@
         "New messages matching active subscriptions trigger a notification mechanism",
         "adhd_subscribe and adhd_unsubscribe MCP tools",
         "Graceful fallback: agents without push support can still poll",
-        "Tests cover subscribe, unsubscribe, match notification, and no-match silence"
+        "Tests cover subscribe, unsubscribe, match notification, and no-match silence",
+        "MIGRATION: On deploy, broadcast a migration message repeatedly via adhd_post until all active agents acknowledge they switched to push and ditched polling monitors",
+        "adhd_migrate_to_push tool that handles the repeated broadcast + acknowledgement tracking"
       ],
       "dependencies": []
     }
