@@ -13,6 +13,17 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
+)
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+    load_pem_private_key,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -567,28 +578,136 @@ def reap_stale_heartbeats() -> list[dict[str, str]]:
 
 
 # ---------------------------------------------------------------------------
+# Agent identity — Ed25519 keypairs
+# ---------------------------------------------------------------------------
+
+
+def _get_key_dir() -> Path:
+    """Return the key storage directory, creating it if needed."""
+    base = Path(os.environ.get("ADHD_BUS_PATH", "~/.brainxio/adhd")).expanduser()
+    key_dir = base / "keys"
+    key_dir.mkdir(parents=True, exist_ok=True)
+    return key_dir
+
+
+def _key_path(agent_id: str, suffix: str = ".pem") -> Path:
+    """Return the full path to an agent's key file."""
+    return _get_key_dir() / f"{agent_id}{suffix}"
+
+
+def generate_keypair(agent_id: str) -> str:
+    """Generate an Ed25519 keypair for *agent_id* and persist to disk.
+
+    Private key: PEM-encoded PKCS8 at ``{key_dir}/{agent_id}.pem``.
+    Public  key: raw hex bytes at ``{key_dir}/{agent_id}.pub``.
+
+    Returns the public-key hex.
+    """
+    private_key = Ed25519PrivateKey.generate()
+    public_key = private_key.public_key()
+
+    pem_private = private_key.private_bytes(
+        encoding=Encoding.PEM,
+        format=PrivateFormat.PKCS8,
+        encryption_algorithm=NoEncryption(),
+    )
+    _key_path(agent_id, ".pem").write_bytes(pem_private)
+
+    pub_hex = public_key.public_bytes_raw().hex()
+    _key_path(agent_id, ".pub").write_text(pub_hex + "\n")
+    return pub_hex
+
+
+def load_private_key(agent_id: str) -> Ed25519PrivateKey | None:
+    """Load the agent's Ed25519 private key, or *None* if missing."""
+    path = _key_path(agent_id, ".pem")
+    if not path.exists():
+        return None
+    try:
+        key = load_pem_private_key(path.read_bytes(), password=None)
+        return key if isinstance(key, Ed25519PrivateKey) else None
+    except Exception:
+        return None
+
+
+def load_public_key(agent_id: str) -> Ed25519PublicKey | None:
+    """Load an agent's Ed25519 public key, or *None* if missing."""
+    path = _key_path(agent_id, ".pub")
+    if not path.exists():
+        return None
+    try:
+        pub_hex = path.read_text().strip()
+        return Ed25519PublicKey.from_public_bytes(bytes.fromhex(pub_hex))
+    except Exception:
+        return None
+
+
+def sign_challenge(agent_id: str, challenge: str) -> str | None:
+    """Sign *challenge* with the agent's private key.
+
+    Returns hex-encoded signature or *None* when no key exists.
+    """
+    private_key = load_private_key(agent_id)
+    if private_key is None:
+        return None
+    return private_key.sign(challenge.encode()).hex()
+
+
+def verify_agent(agent_id: str, challenge: str, signature: str) -> bool:
+    """Verify *signature* of *challenge* against the agent's public key.
+
+    Returns *True* when the signature is valid.  Returns *False* when the
+    public key is missing or verification fails (impersonation / tampering).
+    """
+    public_key = load_public_key(agent_id)
+    if public_key is None:
+        return False
+    try:
+        public_key.verify(bytes.fromhex(signature), challenge.encode())
+        return True
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
 # High-level helpers (signin, signout, heartbeat, post, send)
 # ---------------------------------------------------------------------------
 
 
 def signin() -> str:
-    """Write a signin message."""
+    """Write a signin message with optional identity proof.
+
+    When the agent has an Ed25519 keypair, the signin includes a
+    cryptographic proof of identity (public_key, challenge, signature).
+    """
     payload: dict[str, Any] = {}
     if os.environ.get("ADHD_ENABLE_SUPPORTER"):
         payload["supporter"] = True
         payload["perf_level"] = get_perf_level()
 
+    agent = agent_id()
+    challenge = f"{session_id()}:{now()}"
+    sig = sign_challenge(agent, challenge)
+    if sig is not None:
+        pub_key = load_public_key(agent)
+        if pub_key is not None:
+            payload["public_key"] = pub_key.public_bytes_raw().hex()
+            payload["signature"] = sig
+            payload["challenge"] = challenge
+
     write_message(
         {
             "timestamp": now(),
             "session_id": session_id(),
-            "agent_id": agent_id(),
+            "agent_id": agent,
             "branch": current_branch(),
             "type": "signin",
             "topic": "agent-lifecycle",
             "payload": payload,
         }
     )
+    if sig is not None:
+        return "Signed in (identity verified)."
     if payload.get("supporter"):
         return "Signed in as supporter."
     return "Signed in."

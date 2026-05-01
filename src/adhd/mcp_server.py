@@ -19,6 +19,7 @@ from adhd.bus import (
     check_noise_threshold,
     check_supporters,
     current_branch,
+    generate_keypair,
     get_decision_history,
     get_file_size,
     get_noise_metrics,
@@ -43,6 +44,7 @@ from adhd.bus import (
     subscribe,
     unsubscribe,
     validate_bus,
+    verify_agent,
     verify_signature,
     write_message,
 )
@@ -308,6 +310,39 @@ async def adhd_verify_signature(message_json: str) -> str:
     if verify_signature(msg):
         return json.dumps({"ok": True, "detail": "Signature valid"})
     return json.dumps({"ok": False, "detail": "Signature invalid — message may have been tampered"})
+
+
+@mcp.tool()
+async def adhd_gen_key(agent_id: str) -> str:
+    """Generate an Ed25519 keypair for the given agent.
+
+    Persists PEM-encoded private key and raw-hex public key to
+    ``~/.brainxio/adhd/keys/``.  Run once per agent before signin.
+    Returns the public-key hex.
+    """
+    return generate_keypair(agent_id)
+
+
+@mcp.tool()
+async def adhd_verify_agent(agent_id: str, challenge: str, signature: str) -> str:
+    """Verify an agent's cryptographic identity.
+
+    Checks that *signature* is a valid Ed25519 signature of *challenge*
+    for the given *agent_id*'s public key.  Returns ok=True when the
+    identity is confirmed, ok=False when the key is missing or the
+    signature doesn't match (impersonation attempt).
+    """
+    result = verify_agent(agent_id, challenge, signature)
+    return json.dumps(
+        {
+            "ok": result,
+            "detail": (
+                "Identity verified"
+                if result
+                else "Verification failed — key missing or signature invalid"
+            ),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
