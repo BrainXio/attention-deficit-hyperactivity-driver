@@ -30,11 +30,25 @@
     "adhd-17: Message signing \u2014 HMAC on each JSONL line (sign_message, verify_signature, adhd_verify_signature tool)",
     "adhd-20: Agent verification \u2014 Ed25519 cryptographic identity (generate_keypair, sign_challenge, verify_agent, identity proof in signin)",
     "adhd-21: Capability tokens \u2014 Ed25519-signed authorization claims (issue_token, verify_token, adhd_issue_token, adhd_verify_token, token enforcement on adhd_post/adhd_send)",
-    "adhd-22: Bus access control \u2014 read/write role enforcement via token scopes (required_scope, _check_access, ADHD_ENFORCE_ACCESS_CONTROL)",
-    "adhd-18: Lamport clocks \u2014 causal ordering (get_lamport_time, happens_before, adhd_get_lamport_time, adhd_compare_causality tools, 17 tests, models/bus/mcp_server/rules updated) \u2014 PR #32"
+    "adhd-22: Bus access control \u2014 read/write role enforcement via token scopes (required_scope, _check_access, ADHD_ENFORCE_ACCESS_CONTROL)"
   ],
   "in_progress": [],
   "pending": [
+    {
+      "id": "adhd-18",
+      "subject": "Causal ordering \u2014 Lamport clocks",
+      "description": "Add Lamport logical clock to each message for partial causal ordering across agents. Each agent increments its clock on send and updates on receive. Enable happens-before comparison between messages.",
+      "kanban_status": "ready",
+      "priority": {
+        "level": 2,
+        "rpe_weight": 0.7,
+        "value_score": 70
+      },
+      "done": true,
+      "dependencies": [
+        "adhd-17"
+      ]
+    },
     {
       "id": "adhd-19",
       "subject": "Bus snapshots \u2014 periodic full-state checkpoints",
@@ -126,13 +140,13 @@
       "id": "adhd-25",
       "subject": "Namespace routing \u2014 route messages by project namespace",
       "description": "Route messages between buses based on project namespaces. Agents can address messages to agent@namespace. Add namespace resolution and routing table to bus metadata.",
-      "kanban_status": "backlog",
+      "kanban_status": "done",
       "priority": {
         "level": 3,
         "rpe_weight": 0.5,
         "value_score": 45
       },
-      "done": false,
+      "done": true,
       "dependencies": [
         "adhd-24"
       ]

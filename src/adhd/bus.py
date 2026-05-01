@@ -119,59 +119,6 @@ def get_perf_level() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Lamport logical clocks
-# ---------------------------------------------------------------------------
-
-_lamport_clock: int = 0
-
-
-def get_lamport_time() -> int:
-    """Return the current Lamport logical clock value for this session."""
-    return _lamport_clock
-
-
-def _tick_lamport() -> int:
-    """Increment the Lamport clock (before sending a message) and return the new value."""
-    global _lamport_clock
-    _lamport_clock += 1
-    return _lamport_clock
-
-
-def _update_lamport_from_messages(messages: list[dict[str, Any]]) -> None:
-    """Update local Lamport clock from received messages.
-
-    For each message with a lamport_clock field, apply the Lamport receive rule:
-    C = max(C, C_msg) + 1
-    """
-    global _lamport_clock
-    for msg in messages:
-        msg_clock = msg.get("lamport_clock", 0)
-        if isinstance(msg_clock, (int, float)) and msg_clock > 0:
-            _lamport_clock = max(_lamport_clock, int(msg_clock)) + 1
-
-
-def happens_before(msg_a: dict[str, Any], msg_b: dict[str, Any]) -> bool:
-    """Return True if msg_a potentially happened before msg_b.
-
-    Based on Lamport clocks: if C(a) < C(b), then a → b is possible.
-    If C(a) >= C(b), then a could not have caused b (concurrent or b → a).
-
-    When both messages share the same agent_id, a lower clock definitively
-    means a happened before b.
-    """
-    clock_a = msg_a.get("lamport_clock", 0)
-    clock_b = msg_b.get("lamport_clock", 0)
-    if not isinstance(clock_a, (int, float)) or not isinstance(clock_b, (int, float)):
-        return False
-    if int(clock_a) == 0 and int(clock_b) == 0:
-        return False
-    same_agent = msg_a.get("agent_id") == msg_b.get("agent_id")
-    if same_agent:
-        return int(clock_a) < int(clock_b)
-    return int(clock_a) < int(clock_b)
-
-
-# ---------------------------------------------------------------------------
 # Bus I/O
 # ---------------------------------------------------------------------------
 
@@ -222,8 +169,7 @@ def verify_signature(msg: dict[str, Any]) -> bool:
 
 
 def write_message(msg: dict[str, Any]) -> None:
-    """Append a message to the bus after stamping with Lamport clock and signing."""
-    msg["lamport_clock"] = _tick_lamport()
+    """Append a message to the bus after signing and validating it."""
     msg = sign_message(msg)
     bus_path = resolve()
     with bus_path.open("a") as f:
@@ -272,9 +218,7 @@ def read_messages(
                     continue
             messages.append(msg)
 
-    result = messages[-limit:]
-    _update_lamport_from_messages(result)
-    return result
+    return messages[-limit:]
 
 
 def get_file_size() -> int:
@@ -337,9 +281,7 @@ def read_messages_since(
                     continue
             messages.append(msg)
 
-    result = messages[-limit:]
-    _update_lamport_from_messages(result)
-    return result, file_size
+    return messages[-limit:], file_size
 
 
 # ---------------------------------------------------------------------------
@@ -502,6 +444,7 @@ def validate(line: str) -> tuple[bool, str]:
         "unsubscription",
         "migration_announce",
         "migration_ack",
+        "namespace_rule",
         "bridge_rule",
     }
     if obj["type"] not in valid_types:
@@ -952,7 +895,12 @@ def post(
 
 
 def send(to: str, message: str, topic: str = "agent-request", type_: str = "request") -> str:
-    """Send a message to a specific agent."""
+    """Send a message to a specific agent.
+
+    Supports namespace addressing: send to agent@namespace will forward
+    the message to the bus that the namespace resolves to.
+    """
+    agent_name, namespace = _parse_namespace_address(to)
     write_message(
         {
             "timestamp": now(),
@@ -964,6 +912,26 @@ def send(to: str, message: str, topic: str = "agent-request", type_: str = "requ
             "payload": {"recipient": to, "message": message},
         }
     )
+
+    if namespace:
+        target_slug = resolve_namespace(namespace)
+        if target_slug:
+            msg = {
+                "timestamp": now(),
+                "session_id": session_id(),
+                "agent_id": agent_id(),
+                "branch": current_branch(),
+                "type": type_,
+                "topic": topic,
+                "payload": {"recipient": agent_name, "message": message},
+            }
+            forward_message(msg, target_slug)
+            forwarded_msg = (
+                f"Sent {type_} to {to} "
+                f"(forwarded to namespace '{namespace}' at bus '{target_slug}')."
+            )
+            return forwarded_msg
+
     return f"Sent {type_} to {to}."
 
 
@@ -1709,3 +1677,95 @@ def get_bridge_targets(msg: dict[str, Any]) -> list[str]:
             continue
         targets.append(rule["target_slug"])
     return targets
+
+
+# ---------------------------------------------------------------------------
+# Namespace routing
+# ---------------------------------------------------------------------------
+
+NAMESPACE_TOPIC = "namespace-routing"
+
+
+def _parse_namespace_address(address: str) -> tuple[str, str | None]:
+    """Split an address into (agent_name, namespace).
+
+    If the address contains '@', the part after '@' is the namespace.
+    Otherwise namespace is None.
+    """
+    if "@" in address:
+        parts = address.split("@", 1)
+        return (parts[0], parts[1])
+    return (address, None)
+
+
+def register_namespace(namespace: str, target_slug: str) -> str:
+    """Register a namespace that resolves to a specific bus slug."""
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": "namespace_rule",
+            "topic": NAMESPACE_TOPIC,
+            "payload": {
+                "action": "register",
+                "namespace": namespace,
+                "target_slug": target_slug,
+            },
+        }
+    )
+    return f"Namespace '{namespace}' routed to bus '{target_slug}'."
+
+
+def unregister_namespace(namespace: str) -> str:
+    """Remove a namespace routing rule."""
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": "namespace_rule",
+            "topic": NAMESPACE_TOPIC,
+            "payload": {
+                "action": "unregister",
+                "namespace": namespace,
+            },
+        }
+    )
+    return f"Namespace '{namespace}' removed."
+
+
+def get_namespace_mappings() -> list[dict[str, str]]:
+    """Return the current namespace routing table."""
+    messages = read_messages(topic_filter=NAMESPACE_TOPIC, limit=500)
+    mappings: dict[str, dict[str, str]] = {}
+    for msg in messages:
+        payload = msg.get("payload", {})
+        if not isinstance(payload, dict):
+            continue
+        namespace = payload.get("namespace")
+        if not isinstance(namespace, str):
+            continue
+        action = payload.get("action")
+        if action == "register":
+            target_slug = payload.get("target_slug")
+            if isinstance(target_slug, str):
+                mappings[namespace] = {
+                    "namespace": namespace,
+                    "target_slug": target_slug,
+                    "registered_by": msg.get("agent_id", ""),
+                    "registered_at": msg.get("timestamp", ""),
+                }
+        elif action == "unregister":
+            mappings.pop(namespace, None)
+    return list(mappings.values())
+
+
+def resolve_namespace(namespace: str) -> str | None:
+    """Resolve a namespace to a bus slug. Returns None if not found."""
+    for mapping in get_namespace_mappings():
+        if mapping["namespace"] == namespace:
+            return mapping["target_slug"]
+    return None
