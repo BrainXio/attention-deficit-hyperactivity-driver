@@ -86,8 +86,15 @@ async def adhd_signin() -> str:
 
 
 @mcp.tool()
-async def adhd_signout() -> str:
-    """Sign out from the ADHD coordination bus. Call once before your session ends."""
+async def adhd_signout(token: str = "") -> str:
+    """Sign out from the ADHD coordination bus. Call once before your session ends.
+
+    Args:
+        token: Optional capability token for access control
+    """
+    err = _check_access(token, "write", "adhd_signout")
+    if err:
+        return err
     return signout()
 
 
@@ -103,6 +110,7 @@ async def adhd_read(
     topic: str | None = None,
     agent: str | None = None,
     recipient: str | None = None,
+    token: str = "",
 ) -> str:
     """Read recent messages from the ADHD bus.
 
@@ -112,7 +120,11 @@ async def adhd_read(
         topic: Filter by topic (agent-lifecycle, coordination, agent-activity, etc.)
         agent: Filter by agent ID
         recipient: Filter by payload.recipient field (use "all" for broadcasts)
+        token: Optional capability token for access control
     """
+    err = _check_access(token, "read", "adhd_read")
+    if err:
+        return err
     messages = read_messages(
         limit=limit,
         type_filter=type,
@@ -137,6 +149,26 @@ PROTECTED_TYPES = frozenset(
 
 PROTECTED_TOPICS = frozenset({"mcp-change"})
 
+ENFORCE_AC = "ADHD_ENFORCE_ACCESS_CONTROL"
+
+
+def _check_access(token: str, required_scope: str, required_tool: str) -> str | None:
+    """Check token-based access. Returns None if allowed, error JSON if denied."""
+    if not token and not os.environ.get(ENFORCE_AC):
+        return None
+    if not token:
+        return json.dumps({"error": "access_denied", "detail": "Token required for access control"})
+    caller = agent_id()
+    result = verify_token(
+        token,
+        required_tool=required_tool,
+        required_scope=required_scope,
+        caller_id=caller,
+    )
+    if not result["ok"]:
+        return json.dumps({"error": "access_denied", "detail": result["detail"]})
+    return None
+
 
 @mcp.tool()
 async def adhd_post(type: str, topic: str, payload: str = "{}", token: str = "") -> str:
@@ -148,15 +180,13 @@ async def adhd_post(type: str, topic: str, payload: str = "{}", token: str = "")
         payload: JSON string for the payload (must be a JSON object)
         token: Optional capability token for access control
     """
+    err = _check_access(token, "write", "adhd_post")
+    if err:
+        return err
     if type in PROTECTED_TYPES:
         return f"ERROR: Message type '{type}' is protected. Use the dedicated tool instead."
     if topic in PROTECTED_TOPICS:
         return f"ERROR: Message topic '{topic}' is protected. Use the dedicated tool instead."
-    if token:
-        caller = agent_id()
-        result = verify_token(token, required_tool="adhd_post", caller_id=caller)
-        if not result["ok"]:
-            return json.dumps({"error": "access_denied", "detail": result["detail"]})
     try:
         payload_dict: dict[str, object] = json.loads(payload)
     except json.JSONDecodeError as exc:
@@ -183,13 +213,11 @@ async def adhd_send(
         type: Message type: request, question, or event
         token: Optional capability token for access control
     """
+    err = _check_access(token, "write", "adhd_send")
+    if err:
+        return err
     if type in PROTECTED_TYPES:
         return f"ERROR: Message type '{type}' is protected. Use the dedicated tool instead."
-    if token:
-        caller = agent_id()
-        result = verify_token(token, required_tool="adhd_send", caller_id=caller)
-        if not result["ok"]:
-            return json.dumps({"error": "access_denied", "detail": result["detail"]})
     return bus_send(to=to, message=message, topic=topic, type_=type)
 
 
@@ -282,8 +310,15 @@ async def adhd_validate() -> str:
 
 
 @mcp.tool()
-async def adhd_archive() -> str:
-    """Archive old messages when the bus exceeds 10,000 lines, or warn at 80% capacity."""
+async def adhd_archive(token: str = "") -> str:
+    """Archive old messages when the bus exceeds 10,000 lines, or warn at 80% capacity.
+
+    Args:
+        token: Optional capability token for access control
+    """
+    err = _check_access(token, "write", "adhd_archive")
+    if err:
+        return err
     return archive()
 
 
@@ -578,6 +613,7 @@ async def adhd_subscribe(
     type: str | None = None,
     topic: str | None = None,
     recipient: str | None = None,
+    token: str = "",
 ) -> str:
     """Subscribe to bus messages matching given filters.
 
@@ -588,7 +624,11 @@ async def adhd_subscribe(
         type: Only match messages of this type
         topic: Only match messages of this topic
         recipient: Only match messages with this payload.recipient
+        token: Optional capability token for access control
     """
+    err = _check_access(token, "read", "adhd_subscribe")
+    if err:
+        return err
     global _subscribed_filters
     filters: dict[str, str] = {}
     if type:
@@ -612,12 +652,18 @@ async def adhd_unsubscribe() -> str:
 
 
 @mcp.tool()
-async def adhd_poll() -> str:
+async def adhd_poll(token: str = "") -> str:
     """Return new unread bus messages matching active subscriptions.
 
     Returns only messages posted since the last adhd_poll or adhd_wait call.
     Does not block — returns empty if nothing new.
+
+    Args:
+        token: Optional capability token for access control
     """
+    err = _check_access(token, "read", "adhd_poll")
+    if err:
+        return err
     global _read_pos
     t = _subscribed_filters.get("type")
     tp = _subscribed_filters.get("topic")

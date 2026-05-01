@@ -51,6 +51,15 @@ def temp_bus(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def key_dir(tmp_path: Path) -> Path:
+    """Set up a temporary key directory and patch ADHD_BUS_PATH."""
+    kd = tmp_path / "keys"
+    kd.mkdir(parents=True)
+    with patch.dict(os.environ, {"ADHD_BUS_PATH": str(tmp_path)}):
+        yield kd
+
+
+@pytest.fixture
 def allow_supporter() -> None:
     """Set ADHD_ENABLE_SUPPORTER for tests that need it."""
     with patch.dict(os.environ, {"ADHD_ENABLE_SUPPORTER": "1"}):
@@ -474,3 +483,124 @@ async def test_adhd_discover(tmp_path: Path) -> None:
     assert len(result) >= 1
     assert result[0]["slug"] == slug
     assert "message_count" in result[0]
+
+
+# ---------------------------------------------------------------------------
+# Access control enforcement
+# ---------------------------------------------------------------------------
+
+
+def _make_token() -> str:
+    """Generate an issuer+subject keypair and return a write-scoped token."""
+    bus.generate_keypair("issuer")
+    bus.generate_keypair(bus.agent_id())
+    token = bus.issue_token(
+        "issuer",
+        bus.agent_id(),
+        allowed_tools=["adhd_post", "adhd_read", "adhd_poll", "adhd_archive", "adhd_signout"],
+        scopes=["read", "write"],
+    )
+    assert token is not None
+    return token
+
+
+def _make_readonly_token() -> str:
+    """Generate a read-only token (no write scope)."""
+    bus.generate_keypair("read-issuer")
+    bus.generate_keypair(bus.agent_id())
+    token = bus.issue_token(
+        "read-issuer",
+        bus.agent_id(),
+        allowed_tools=["adhd_read", "adhd_poll"],
+        scopes=["read"],
+    )
+    assert token is not None
+    return token
+
+
+@pytest.mark.asyncio
+async def test_read_without_token_no_enforcement(temp_bus: Path) -> None:
+    """Without enforcement, read works without a token."""
+    result = await adhd_read()
+    data = json.loads(result)
+    assert isinstance(data, list)
+
+
+@pytest.mark.asyncio
+async def test_post_without_token_no_enforcement(temp_bus: Path) -> None:
+    """Without enforcement, post works without a token."""
+    result = await adhd_post(type="status", topic="test", payload='{"msg":"ok"}')
+    assert "ERROR" not in result
+
+
+@pytest.mark.asyncio
+async def test_post_with_valid_token(temp_bus: Path, key_dir: Path) -> None:
+    """Post with valid token succeeds."""
+    token = _make_token()
+    result = await adhd_post(type="status", topic="test", payload='{"msg":"ok"}', token=token)
+    assert "ERROR" not in result
+
+
+@pytest.mark.asyncio
+async def test_post_with_readonly_token(temp_bus: Path, key_dir: Path) -> None:
+    """Post with read-only token is denied."""
+    token = _make_readonly_token()
+    result = await adhd_post(type="status", topic="test", payload='{"msg":"ok"}', token=token)
+    assert "access_denied" in result
+
+
+@pytest.mark.asyncio
+async def test_read_with_readonly_token(temp_bus: Path, key_dir: Path) -> None:
+    """Read with read-only token succeeds."""
+    token = _make_readonly_token()
+    result = await adhd_read(token=token)
+    data = json.loads(result)
+    assert isinstance(data, list)
+
+
+@pytest.mark.asyncio
+async def test_post_requires_token_enforcement(temp_bus: Path, key_dir: Path) -> None:
+    """With ADHD_ENFORCE_ACCESS_CONTROL, post rejects missing token."""
+    with patch.dict(os.environ, {"ADHD_ENFORCE_ACCESS_CONTROL": "1"}):
+        result = await adhd_post(type="status", topic="test", payload='{"msg":"ok"}')
+    assert "access_denied" in result
+
+
+@pytest.mark.asyncio
+async def test_read_requires_token_enforcement(temp_bus: Path, key_dir: Path) -> None:
+    """With ADHD_ENFORCE_ACCESS_CONTROL, read rejects missing token."""
+    with patch.dict(os.environ, {"ADHD_ENFORCE_ACCESS_CONTROL": "1"}):
+        result = await adhd_read()
+    assert "access_denied" in result
+
+
+@pytest.mark.asyncio
+async def test_post_with_valid_token_enforcement(temp_bus: Path, key_dir: Path) -> None:
+    """With enforcement, valid token allows post."""
+    token = _make_token()
+    with patch.dict(os.environ, {"ADHD_ENFORCE_ACCESS_CONTROL": "1"}):
+        result = await adhd_post(type="status", topic="test", payload='{"msg":"ok"}', token=token)
+    assert "ERROR" not in result
+
+
+@pytest.mark.asyncio
+async def test_poll_without_token_no_enforcement(temp_bus: Path) -> None:
+    """Without enforcement, poll works without a token."""
+    result = await adhd_poll()
+    assert result == "[]"
+
+
+@pytest.mark.asyncio
+async def test_signout_requires_token_enforcement(temp_bus: Path) -> None:
+    """signout with enforcement rejects missing token."""
+    with patch.dict(os.environ, {"ADHD_ENFORCE_ACCESS_CONTROL": "1"}):
+        result = await adhd_signout()
+    assert "access_denied" in result
+
+
+@pytest.mark.asyncio
+async def test_archive_requires_token_enforcement(temp_bus: Path) -> None:
+    """archive with enforcement rejects missing token."""
+    with patch.dict(os.environ, {"ADHD_ENFORCE_ACCESS_CONTROL": "1"}):
+        result = await adhd_archive()
+    assert "access_denied" in result

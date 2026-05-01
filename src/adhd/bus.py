@@ -724,6 +724,7 @@ def verify_token(
     token_str: str,
     *,
     required_tool: str | None = None,
+    required_scope: str | None = None,
     caller_id: str | None = None,
 ) -> dict[str, object]:
     """Verify a signed capability token.
@@ -735,6 +736,7 @@ def verify_token(
     4. Token has not expired
     5. ``caller_id`` matches ``subject`` (when provided)
     6. ``required_tool`` is in ``allowed_tools`` (when provided)
+    7. ``required_scope`` is in ``scopes`` (when provided)
 
     Returns ``{"ok": True}`` or ``{"ok": False, "detail": "..."}``.
     """
@@ -795,6 +797,14 @@ def verify_token(
             return {
                 "ok": False,
                 "detail": f"Token does not allow tool '{required_tool}'",
+            }
+
+    if required_scope is not None:
+        scopes = payload.get("scopes", [])
+        if required_scope not in scopes:
+            return {
+                "ok": False,
+                "detail": f"Token missing required scope '{required_scope}'",
             }
 
     return {"ok": True}
