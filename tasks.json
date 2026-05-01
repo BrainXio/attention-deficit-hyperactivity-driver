@@ -27,7 +27,8 @@
     "adhd-14: Recipient filter on adhd_read (exact match + 'all' wildcard) — PR #20",
     "adhd-16: Push/event-driven delivery — subscribe, unsubscribe, poll, wait, migrate_to_push — PR #24",
     "adhd-15: Agent-noise-threshold monitoring — get_noise_metrics, check_noise_threshold, adhd_noise_check tool, density warnings on bus",
-    "adhd-17: Message signing — HMAC on each JSONL line (sign_message, verify_signature, adhd_verify_signature tool)"
+    "adhd-17: Message signing — HMAC on each JSONL line (sign_message, verify_signature, adhd_verify_signature tool)",
+    "adhd-20: Agent verification — Ed25519 cryptographic identity (generate_keypair, sign_challenge, verify_agent, identity proof in signin)"
   ],
   "in_progress": [],
   "pending": [
@@ -44,18 +45,18 @@
       "id": "adhd-19",
       "subject": "Bus snapshots — periodic full-state checkpoints",
       "description": "Periodically write full bus state checkpoints for faster recovery and replay. Snapshot includes message count, timestamp range, and agent registry state. Add adhd_snapshot tool.",
-      "kanban_status": "backlog",
+      "kanban_status": "done",
       "priority": {"level": 2, "rpe_weight": 0.6, "value_score": 65},
-      "done": false,
+      "done": true,
       "dependencies": []
     },
     {
       "id": "adhd-20",
       "subject": "Agent verification — cryptographic identity",
       "description": "Implement cryptographic agent identity beyond session ID. Each agent gets an Ed25519 keypair. Signin includes a signature proving key ownership. Prevents agent impersonation.",
-      "kanban_status": "ready",
+      "kanban_status": "done",
       "priority": {"level": 1, "rpe_weight": 0.85, "value_score": 85},
-      "done": false,
+      "done": true,
       "dependencies": ["adhd-17"]
     },
     {
@@ -80,9 +81,9 @@
       "id": "adhd-23",
       "subject": "Bus discovery — find active buses on the machine",
       "description": "Add adhd_discover tool to scan the filesystem for active bus.jsonl files. Return bus metadata: slug, message count, last activity, active agents.",
-      "kanban_status": "backlog",
+      "kanban_status": "done",
       "priority": {"level": 3, "rpe_weight": 0.5, "value_score": 50},
-      "done": false,
+      "done": true,
       "dependencies": []
     },
     {
