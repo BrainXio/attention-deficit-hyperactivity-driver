@@ -453,11 +453,24 @@ async def test_adhd_snapshot_with_data(temp_bus: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_adhd_discover(temp_bus: Path) -> None:
+async def test_adhd_discover(tmp_path: Path) -> None:
     """adhd_discover finds the current channel."""
-    bus.write_message(_sample_message())
-    result = json.loads(await adhd_discover())
+    slug = "test-channel"
+    channel_dir = tmp_path / slug
+    channel_dir.mkdir()
+    bus_file = channel_dir / "bus.jsonl"
+
+    # discover_buses scans ADHD_BUS_PATH for subdirectories with bus.jsonl,
+    # while write_message uses resolve(). Patch both.
+    with (
+        patch.object(bus, "resolve", return_value=bus_file),
+        patch.object(mcp_server_mod, "resolve", return_value=bus_file),
+        patch.dict(os.environ, {"ADHD_BUS_PATH": str(tmp_path)}),
+    ):
+        bus.write_message(_sample_message())
+        result = json.loads(await adhd_discover())
+
     assert isinstance(result, list)
     assert len(result) >= 1
-    assert "slug" in result[0]
+    assert result[0]["slug"] == slug
     assert "message_count" in result[0]
