@@ -356,6 +356,162 @@ def test_read_skips_invalid_json(temp_bus: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Position-based reading
+# ---------------------------------------------------------------------------
+
+
+def test_get_file_size_empty(temp_bus: Path) -> None:
+    assert bus.get_file_size() == 0
+
+
+def test_get_file_size_with_messages(temp_bus: Path) -> None:
+    bus.write_message(_sample_message())
+    assert bus.get_file_size() > 0
+
+
+def test_read_messages_since_empty(temp_bus: Path) -> None:
+    msgs, pos = bus.read_messages_since(0)
+    assert msgs == []
+    assert pos == 0
+
+
+def test_read_messages_since_returns_new_messages(temp_bus: Path) -> None:
+    bus.write_message(_sample_message())
+    msgs, pos = bus.read_messages_since(0)
+    assert len(msgs) == 1
+    assert pos > 0
+
+
+def test_read_messages_since_skips_already_read(temp_bus: Path) -> None:
+    bus.write_message(_sample_message())
+    _, pos = bus.read_messages_since(0)
+    # Second read from same position returns nothing
+    msgs, new_pos = bus.read_messages_since(pos)
+    assert msgs == []
+    assert new_pos == pos
+
+
+def test_read_messages_since_sees_new_appends(temp_bus: Path) -> None:
+    bus.write_message(_sample_message())
+    _, pos = bus.read_messages_since(0)
+    # Write another message
+    msg2 = _sample_message()
+    msg2["agent_id"] = "agent-b"
+    bus.write_message(msg2)
+    msgs, new_pos = bus.read_messages_since(pos)
+    assert len(msgs) == 1
+    assert msgs[0]["agent_id"] == "agent-b"
+    assert new_pos > pos
+
+
+def test_read_messages_since_with_filters(temp_bus: Path) -> None:
+    msg1 = _sample_message()
+    msg1["type"] = "heartbeat"
+    bus.write_message(msg1)
+    msg2 = _sample_message()
+    msg2["type"] = "signin"
+    bus.write_message(msg2)
+    msgs, pos = bus.read_messages_since(0, type_filter="heartbeat")
+    assert len(msgs) == 1
+    assert msgs[0]["type"] == "heartbeat"
+    assert pos > 0
+
+
+# ---------------------------------------------------------------------------
+# Subscription protocol
+# ---------------------------------------------------------------------------
+
+
+def test_subscribe_writes_message(temp_bus: Path) -> None:
+    result = bus.subscribe({"type": "heartbeat"})
+    assert "Subscribed" in result
+    msgs = bus.read_messages(topic_filter="bus-subscriptions")
+    assert len(msgs) == 1
+    assert msgs[0]["type"] == "subscription"
+    assert msgs[0]["payload"]["filters"] == {"type": "heartbeat"}
+
+
+def test_unsubscribe_writes_message(temp_bus: Path) -> None:
+    bus.subscribe({"type": "heartbeat"})
+    result = bus.unsubscribe()
+    assert "Unsubscribed" in result
+    msgs = bus.read_messages(topic_filter="bus-subscriptions")
+    assert msgs[-1]["type"] == "unsubscription"
+
+
+def test_get_subscriptions_returns_active(temp_bus: Path) -> None:
+    bus.subscribe({"topic": "agent-lifecycle"})
+    subs = bus.get_subscriptions()
+    assert bus.agent_id() in subs
+    assert subs[bus.agent_id()] == {"topic": "agent-lifecycle"}
+
+
+def test_get_subscriptions_removes_unsubscribed(temp_bus: Path) -> None:
+    bus.subscribe({"recipient": "test-agent"})
+    bus.unsubscribe()
+    subs = bus.get_subscriptions()
+    assert bus.agent_id() not in subs
+
+
+def test_get_subscriptions_multiple_agents(temp_bus: Path) -> None:
+    # Write subscription messages for different agents using post with override
+    bus.post(
+        "subscription",
+        "bus-subscriptions",
+        {"action": "subscribe", "filters": {"type": "heartbeat"}},
+        agent_id_override="agent-x",
+    )
+    bus.post(
+        "subscription",
+        "bus-subscriptions",
+        {"action": "subscribe", "filters": {"recipient": "all"}},
+        agent_id_override="agent-y",
+    )
+    subs = bus.get_subscriptions()
+    assert "agent-x" in subs
+    assert "agent-y" in subs
+    assert subs["agent-x"] == {"type": "heartbeat"}
+    assert subs["agent-y"] == {"recipient": "all"}
+
+
+# ---------------------------------------------------------------------------
+# Migration protocol
+# ---------------------------------------------------------------------------
+
+
+def test_announce_migration(temp_bus: Path) -> None:
+    result = bus.announce_migration()
+    assert "announcement" in result.lower()
+    msgs = bus.read_messages(topic_filter="bus-migration")
+    assert len(msgs) == 1
+    assert msgs[0]["type"] == "migration_announce"
+
+
+def test_ack_migration(temp_bus: Path) -> None:
+    result = bus.ack_migration()
+    assert "acknowledged" in result.lower()
+    msgs = bus.read_messages(topic_filter="bus-migration")
+    assert msgs[0]["type"] == "migration_ack"
+
+
+def test_get_pending_migration_acks_none_acked(temp_bus: Path) -> None:
+    pending = bus.get_pending_migration_acks(["agent-a", "agent-b"])
+    assert sorted(pending) == ["agent-a", "agent-b"]
+
+
+def test_get_pending_migration_acks_some_acked(temp_bus: Path) -> None:
+    # Write ack for agent-a using post with override
+    bus.post(
+        "migration_ack",
+        "bus-migration",
+        {"action": "ack"},
+        agent_id_override="agent-a",
+    )
+    pending = bus.get_pending_migration_acks(["agent-a", "agent-b"])
+    assert pending == ["agent-b"]
+
+
+# ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
 

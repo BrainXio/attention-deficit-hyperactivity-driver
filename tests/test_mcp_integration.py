@@ -19,6 +19,8 @@ from adhd.mcp_server import (
     adhd_mcp_change_check,
     adhd_mcp_change_prepare,
     adhd_mcp_change_ready,
+    adhd_migrate_to_push,
+    adhd_poll,
     adhd_post,
     adhd_read,
     adhd_resolve,
@@ -26,7 +28,10 @@ from adhd.mcp_server import (
     adhd_signin,
     adhd_signout,
     adhd_start_heartbeat,
+    adhd_subscribe,
+    adhd_unsubscribe,
     adhd_validate,
+    adhd_wait,
 )
 
 
@@ -268,3 +273,69 @@ async def test_adhd_get_rules() -> None:
     assert "env_vars" in data
     assert "tools" in data
     assert data["protocols"]["heartbeat"]["interval_minutes"] == 10
+
+
+# ---------------------------------------------------------------------------
+# Push/event-driven delivery
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_adhd_subscribe(temp_bus: Path) -> None:
+    result = await adhd_subscribe(type="heartbeat", topic="agent-lifecycle")
+    assert "Subscribed" in result
+    msgs = bus.read_messages(topic_filter="bus-subscriptions")
+    assert len(msgs) == 1
+
+
+@pytest.mark.asyncio
+async def test_adhd_subscribe_no_filters(temp_bus: Path) -> None:
+    result = await adhd_subscribe()
+    assert "ERROR" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_unsubscribe(temp_bus: Path) -> None:
+    await adhd_subscribe(type="heartbeat")
+    result = await adhd_unsubscribe()
+    assert "Unsubscribed" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_poll_empty(temp_bus: Path) -> None:
+    result = await adhd_poll()
+    assert result == "[]"
+
+
+@pytest.mark.asyncio
+async def test_adhd_poll_returns_new(temp_bus: Path) -> None:
+    await adhd_subscribe(type="request")
+    # adhd_send posts messages with type "request"
+    await adhd_send(to=bus.agent_id(), message="test")
+    result = await adhd_poll()
+    assert bus.agent_id() in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_poll_respects_filters(temp_bus: Path) -> None:
+    await adhd_subscribe(type="signin")
+    # Post a heartbeat message — should be filtered out
+    bus.post("heartbeat", "agent-lifecycle", {"note": "ignore"})
+    result = await adhd_poll()
+    assert result == "[]"
+
+
+@pytest.mark.asyncio
+async def test_adhd_wait_timeout(temp_bus: Path) -> None:
+    await adhd_subscribe(type="heartbeat")
+    result = await adhd_wait(timeout=0.5)
+    assert result == "[]"
+
+
+@pytest.mark.asyncio
+async def test_adhd_migrate_to_push_no_supporters(temp_bus: Path) -> None:
+    await adhd_signin()
+    # Ack migration for our agent before running the broadcast
+    bus.ack_migration()
+    result = await adhd_migrate_to_push()
+    assert "acknowledged" in result.lower()
