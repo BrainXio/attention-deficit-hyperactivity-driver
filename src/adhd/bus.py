@@ -1242,3 +1242,122 @@ def archive() -> str:
         )
 
     return f"Bus has {line_count} lines ({pct}% capacity). No archive needed."
+
+
+# ---------------------------------------------------------------------------
+# Bus snapshots
+# ---------------------------------------------------------------------------
+
+
+def create_snapshot() -> dict[str, Any]:
+    """Create a full-state checkpoint of the bus for recovery and replay.
+
+    Returns message count, timestamp range, registered/active agents,
+    subscription state, and bus file path. Does not write to the bus.
+    """
+    bus_path = resolve()
+    if not bus_path.exists():
+        return {
+            "snapshot_at": now(),
+            "message_count": 0,
+            "file_size_bytes": 0,
+            "timestamp_range": {"first": None, "last": None},
+            "registered_agents": [],
+            "active_agents": [],
+            "subscriptions": {},
+            "bus_path": str(bus_path),
+        }
+
+    messages = read_messages(limit=10000)
+    first_ts = messages[0]["timestamp"] if messages else None
+    last_ts = messages[-1]["timestamp"] if messages else None
+
+    agents: set[str] = set()
+    for msg in messages:
+        a = msg.get("agent_id")
+        if isinstance(a, str):
+            agents.add(a)
+
+    supporters = check_supporters()
+    active_agent_ids = [s["agent_id"] for s in supporters]
+
+    return {
+        "snapshot_at": now(),
+        "message_count": len(messages),
+        "file_size_bytes": bus_path.stat().st_size,
+        "timestamp_range": {"first": first_ts, "last": last_ts},
+        "registered_agents": sorted(agents),
+        "active_agents": sorted(active_agent_ids),
+        "subscriptions": get_subscriptions(),
+        "bus_path": str(bus_path),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Bus discovery
+# ---------------------------------------------------------------------------
+
+
+def discover_buses() -> list[dict[str, Any]]:
+    """Scan the ADHD storage directory for active bus files.
+
+    Returns metadata for each discovered bus: slug, message count,
+    last activity timestamp, and active agent count.
+    """
+    base_dir = Path(os.environ.get("ADHD_BUS_PATH", "~/.brainxio/adhd")).expanduser()
+    if not base_dir.exists():
+        return []
+
+    results: list[dict[str, Any]] = []
+    for channel_dir in sorted(base_dir.iterdir()):
+        if not channel_dir.is_dir():
+            continue
+        bus_file = channel_dir / "bus.jsonl"
+        if not bus_file.exists():
+            continue
+
+        try:
+            bus_stat = bus_file.stat()
+            size = bus_stat.st_size
+            mtime = datetime.fromtimestamp(bus_stat.st_mtime, tz=UTC).isoformat()
+        except OSError:
+            continue
+
+        slug = channel_dir.name
+        line_count = 0
+        last_activity = None
+        agents_seen: set[str] = set()
+
+        try:
+            with bus_file.open("r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    line_count += 1
+                    try:
+                        msg = json.loads(line)
+                        ts = msg.get("timestamp")
+                        if isinstance(ts, str):
+                            last_activity = ts
+                        a = msg.get("agent_id")
+                        if isinstance(a, str):
+                            agents_seen.add(a)
+                    except json.JSONDecodeError:
+                        pass
+        except OSError:
+            continue
+
+        results.append(
+            {
+                "slug": slug,
+                "message_count": line_count,
+                "last_activity": last_activity or mtime,
+                "file_size_bytes": size,
+                "agents_seen": sorted(agents_seen),
+                "agent_count": len(agents_seen),
+                "bus_path": str(bus_file),
+            }
+        )
+
+    return results

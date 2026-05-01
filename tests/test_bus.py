@@ -1204,3 +1204,99 @@ def test_write_message_roundtrip(temp_bus: Path) -> None:
     msg = json.loads(lines[0])
     with patch.dict(os.environ, {"ADHD_BUS_SECRET": "test-key"}, clear=True):
         assert bus.verify_signature(msg) is True
+
+
+# ---------------------------------------------------------------------------
+# Bus snapshots
+# ---------------------------------------------------------------------------
+
+
+def test_create_snapshot_empty_bus(temp_bus: Path) -> None:
+    """Snapshot on an empty bus returns zero counts and structure."""
+    snap = bus.create_snapshot()
+    assert snap["message_count"] == 0
+    assert snap["timestamp_range"]["first"] is None
+    assert snap["active_agents"] == []
+    assert snap["registered_agents"] == []
+    assert "bus_path" in snap
+
+
+def test_create_snapshot_with_messages(temp_bus: Path) -> None:
+    """Snapshot reflects messages on the bus."""
+    bus.write_message(_sample_message())
+    bus.write_message(_sample_message())
+    snap = bus.create_snapshot()
+    assert snap["message_count"] == 2
+    assert snap["timestamp_range"]["first"] is not None
+    assert snap["file_size_bytes"] > 0
+    assert len(snap["registered_agents"]) >= 1
+
+
+def test_create_snapshot_includes_subscriptions(temp_bus: Path) -> None:
+    """Snapshot captures current subscription state."""
+    bus.subscribe({"type": "heartbeat"})
+    snap = bus.create_snapshot()
+    assert "subscriptions" in snap
+
+
+# ---------------------------------------------------------------------------
+# Bus discovery
+# ---------------------------------------------------------------------------
+
+
+def test_discover_buses_empty(tmp_path: Path) -> None:
+    """discover_buses returns empty list when no buses exist."""
+    with patch.dict(os.environ, {"ADHD_BUS_PATH": str(tmp_path / "nonexistent")}):
+        assert bus.discover_buses() == []
+
+
+def test_discover_buses_finds_channels(tmp_path: Path) -> None:
+    """discover_buses finds bus files in subdirectories."""
+    store = tmp_path / "buses"
+    store.mkdir()
+    chan = store / "test-channel"
+    chan.mkdir()
+    (chan / "bus.jsonl").write_text(
+        '{"timestamp":"2026-05-01T00:00:00Z","session_id":"s1","agent_id":"a1",'
+        '"branch":"main","type":"signin","topic":"agent-lifecycle","payload":{}}\n'
+    )
+    with patch.dict(os.environ, {"ADHD_BUS_PATH": str(store)}):
+        results = bus.discover_buses()
+    assert len(results) == 1
+    assert results[0]["slug"] == "test-channel"
+    assert results[0]["message_count"] == 1
+    assert results[0]["agent_count"] == 1
+
+
+def test_discover_buses_skips_directories_without_bus(tmp_path: Path) -> None:
+    """Directories without bus.jsonl are skipped."""
+    store = tmp_path / "buses"
+    store.mkdir()
+    (store / "empty-chan").mkdir()
+    chan = store / "good-chan"
+    chan.mkdir()
+    (chan / "bus.jsonl").write_text(
+        '{"timestamp":"2026-05-01T00:00:00Z","session_id":"s1","agent_id":"a1",'
+        '"branch":"main","type":"signin","topic":"agent-lifecycle","payload":{}}\n'
+    )
+    with patch.dict(os.environ, {"ADHD_BUS_PATH": str(store)}):
+        results = bus.discover_buses()
+    assert len(results) == 1
+    assert results[0]["slug"] == "good-chan"
+
+
+def test_discover_buses_sorted(tmp_path: Path) -> None:
+    """Results are alphabetically sorted by slug."""
+    store = tmp_path / "buses"
+    store.mkdir()
+    for name in ["z-chan", "a-chan"]:
+        chan = store / name
+        chan.mkdir()
+        (chan / "bus.jsonl").write_text(
+            '{"timestamp":"2026-05-01T00:00:00Z","session_id":"s1","agent_id":"a1",'
+            '"branch":"main","type":"signin","topic":"agent-lifecycle","payload":{}}\n'
+        )
+    with patch.dict(os.environ, {"ADHD_BUS_PATH": str(store)}):
+        results = bus.discover_buses()
+    assert results[0]["slug"] == "a-chan"
+    assert results[1]["slug"] == "z-chan"
