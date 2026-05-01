@@ -24,7 +24,7 @@ classifiers = [
 ]
 dependencies = [
     "mcp>=1.27.0",
-    "pydantic>=2.11",
+    "pydantic>=2.13.3",
 ]
 
 [project.scripts]
