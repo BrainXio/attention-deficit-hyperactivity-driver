@@ -122,6 +122,50 @@ class TestTokenVerification:
         assert result["ok"] is False
         assert "required field" in str(result["detail"]).lower()
 
+    def test_verify_with_valid_scope(self, key_dir: Path) -> None:
+        bus.generate_keypair("issuer")
+        token = bus.issue_token("issuer", "agent-abc", scopes=["read", "write"])
+        assert token is not None
+        assert bus.verify_token(token, required_scope="read")["ok"] is True
+        assert bus.verify_token(token, required_scope="write")["ok"] is True
+
+    def test_verify_with_missing_scope(self, key_dir: Path) -> None:
+        bus.generate_keypair("issuer")
+        token = bus.issue_token("issuer", "agent-abc", scopes=["read"])
+        assert token is not None
+        assert bus.verify_token(token, required_scope="read")["ok"] is True
+        assert bus.verify_token(token, required_scope="write")["ok"] is False
+
+    def test_verify_with_empty_scopes(self, key_dir: Path) -> None:
+        bus.generate_keypair("issuer")
+        token = bus.issue_token("issuer", "agent-abc", scopes=[])
+        assert token is not None
+        assert bus.verify_token(token, required_scope="read")["ok"] is False
+        assert bus.verify_token(token, required_scope="write")["ok"] is False
+
+    def test_verify_with_tool_and_scope(self, key_dir: Path) -> None:
+        bus.generate_keypair("issuer")
+        token = bus.issue_token(
+            "issuer",
+            "agent-abc",
+            allowed_tools=["adhd_read"],
+            scopes=["read"],
+        )
+        assert token is not None
+        # Both tool and scope must match
+        assert (
+            bus.verify_token(token, required_tool="adhd_read", required_scope="read")["ok"] is True
+        )
+        # Wrong tool
+        assert (
+            bus.verify_token(token, required_tool="adhd_post", required_scope="read")["ok"] is False
+        )
+        # Wrong scope
+        assert (
+            bus.verify_token(token, required_tool="adhd_read", required_scope="write")["ok"]
+            is False
+        )
+
 
 class TestTokenWithScopes:
     def test_issue_with_scopes(self, key_dir: Path) -> None:
