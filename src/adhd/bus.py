@@ -444,6 +444,7 @@ def validate(line: str) -> tuple[bool, str]:
         "unsubscription",
         "migration_announce",
         "migration_ack",
+        "bridge_rule",
     }
     if obj["type"] not in valid_types:
         return False, f"Invalid type: {obj['type']}"
@@ -1502,3 +1503,151 @@ def discover_buses() -> list[dict[str, Any]]:
         )
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Cross-bus bridging
+# ---------------------------------------------------------------------------
+
+BRIDGE_RULE_TYPE = "bridge_rule"
+BRIDGE_TOPIC = "bridge-rules"
+
+
+def resolve_bus_path(slug: str) -> Path:
+    """Return the path to a bus file by its slug name."""
+    base_dir = Path(os.environ.get("ADHD_BUS_PATH", "~/.brainxio/adhd")).expanduser()
+    bus_dir = base_dir / slug
+    bus_dir.mkdir(parents=True, exist_ok=True)
+    return bus_dir / "bus.jsonl"
+
+
+def register_bridge(
+    target_slug: str,
+    type_filter: str | None = None,
+    topic_filter: str | None = None,
+) -> str:
+    """Register a bridge rule that forwards matching messages to a target bus."""
+    filters: dict[str, str] = {}
+    if type_filter:
+        filters["type"] = type_filter
+    if topic_filter:
+        filters["topic"] = topic_filter
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": BRIDGE_RULE_TYPE,
+            "topic": BRIDGE_TOPIC,
+            "payload": {
+                "action": "register",
+                "target_slug": target_slug,
+                "filters": filters,
+            },
+        }
+    )
+    return f"Bridge registered to '{target_slug}' with filters {filters or 'all'}."
+
+
+def unregister_bridge(target_slug: str) -> str:
+    """Remove a bridge rule for a target bus."""
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": BRIDGE_RULE_TYPE,
+            "topic": BRIDGE_TOPIC,
+            "payload": {
+                "action": "unregister",
+                "target_slug": target_slug,
+            },
+        }
+    )
+    return f"Bridge to '{target_slug}' removed."
+
+
+def get_bridge_rules() -> list[dict[str, Any]]:
+    """Return active bridge rules."""
+    messages = read_messages(topic_filter=BRIDGE_TOPIC, limit=500)
+    rules: dict[str, dict[str, Any]] = {}
+    for msg in messages:
+        payload = msg.get("payload", {})
+        if not isinstance(payload, dict):
+            continue
+        target = payload.get("target_slug")
+        if not isinstance(target, str):
+            continue
+        action = payload.get("action")
+        if action == "register":
+            filters = payload.get("filters", {})
+            rules[target] = {
+                "source_slug": _bus_slug(),
+                "target_slug": target,
+                "filters": filters if isinstance(filters, dict) else {},
+                "registered_by": msg.get("agent_id", ""),
+                "registered_at": msg.get("timestamp", ""),
+            }
+        elif action == "unregister":
+            rules.pop(target, None)
+    return list(rules.values())
+
+
+def _bus_slug() -> str:
+    """Return the slug name for the current bus (without resolving the full path)."""
+    bus_name = os.environ.get("ADHD_BUS_SLUG")
+    if bus_name:
+        return bus_name
+    try:
+        superproject = subprocess.run(
+            ["git", "rev-parse", "--show-superproject-working-tree"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        if superproject:
+            return Path(superproject).name
+        toplevel = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        return Path(toplevel).name
+    except subprocess.CalledProcessError:
+        return "default"
+
+
+def forward_message(msg: dict[str, Any], target_slug: str) -> None:
+    """Forward a message to another bus, re-signing it for the target."""
+    forwarded = {k: v for k, v in msg.items() if k not in ("hmac", "bridged_from")}
+    forwarded["bridged_from"] = _bus_slug()
+    forwarded["timestamp"] = now()
+    target_path = resolve_bus_path(target_slug)
+    forwarded = sign_message(forwarded)
+    with target_path.open("a") as f:
+        f.write(json.dumps(forwarded, separators=(",", ":")) + "\n")
+
+
+def get_bridge_targets(msg: dict[str, Any]) -> list[str]:
+    """Return target slugs whose bridge rules match the given message."""
+    bridged_from = msg.get("bridged_from", "")
+    msg_type = msg.get("type", "")
+    msg_topic = msg.get("topic", "")
+    targets: list[str] = []
+    for rule in get_bridge_rules():
+        if rule["target_slug"] == bridged_from:
+            continue
+        filters = rule.get("filters", {})
+        if not filters:
+            if msg_type != BRIDGE_RULE_TYPE:
+                targets.append(rule["target_slug"])
+            continue
+        if "type" in filters and filters["type"] != msg_type:
+            continue
+        if "topic" in filters and filters["topic"] != msg_topic:
+            continue
+        targets.append(rule["target_slug"])
+    return targets

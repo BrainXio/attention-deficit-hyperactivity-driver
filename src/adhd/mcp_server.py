@@ -21,7 +21,10 @@ from adhd.bus import (
     create_snapshot,
     current_branch,
     discover_buses,
+    forward_message,
     generate_keypair,
+    get_bridge_rules,
+    get_bridge_targets,
     get_decision_history,
     get_file_size,
     get_noise_metrics,
@@ -40,11 +43,13 @@ from adhd.bus import (
     read_messages,
     read_messages_since,
     reap_stale_heartbeats,
+    register_bridge,
     resolve,
     session_id,
     signin,
     signout,
     subscribe,
+    unregister_bridge,
     unsubscribe,
     validate_bus,
     verify_agent,
@@ -144,6 +149,7 @@ PROTECTED_TYPES = frozenset(
         "unsubscription",
         "migration_announce",
         "migration_ack",
+        "bridge_rule",
     }
 )
 
@@ -193,7 +199,24 @@ async def adhd_post(type: str, topic: str, payload: str = "{}", token: str = "")
         return f"ERROR: Invalid JSON payload: {exc}"
     if not isinstance(payload_dict, dict):
         return "ERROR: payload must be a JSON object"
-    return bus_post(type_=type, topic=topic, payload=payload_dict)
+    result = bus_post(type_=type, topic=topic, payload=payload_dict)
+
+    msg = {
+        "timestamp": now(),
+        "session_id": session_id(),
+        "agent_id": agent_id(),
+        "branch": current_branch(),
+        "type": type,
+        "topic": topic,
+        "payload": payload_dict,
+    }
+    targets = get_bridge_targets(msg)
+    for target in targets:
+        forward_message(msg, target)
+
+    if targets:
+        result += f" Forwarded to: {', '.join(targets)}."
+    return result
 
 
 @mcp.tool()
@@ -753,6 +776,53 @@ async def adhd_migrate_to_push() -> str:
             f"Still pending: {pending}. Will retry on next call."
         )
     return f"All {len(active_agents)} agents acknowledged migration."
+
+
+# ---------------------------------------------------------------------------
+# Cross-bus bridging tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def adhd_bridge_register(
+    target_slug: str,
+    type: str | None = None,
+    topic: str | None = None,
+) -> str:
+    """Register a bridge that forwards matching messages to another bus.
+
+    Creates a bridge rule on the bus. When messages are posted via adhd_post
+    and match the optional type/topic filters, they are automatically forwarded
+    to the target bus. If no filters are given, all messages are forwarded.
+
+    Args:
+        target_slug: The slug name of the target bus (e.g., "v0.1.0-alpha")
+        type: Only forward messages of this type (optional)
+        topic: Only forward messages of this topic (optional)
+    """
+    return register_bridge(target_slug, type_filter=type, topic_filter=topic)
+
+
+@mcp.tool()
+async def adhd_bridge_unregister(target_slug: str) -> str:
+    """Remove a bridge rule so messages stop forwarding to the target bus.
+
+    Args:
+        target_slug: The slug name of the target bus to stop forwarding to
+    """
+    return unregister_bridge(target_slug)
+
+
+@mcp.tool()
+async def adhd_bridge_list() -> str:
+    """List all active bridge rules.
+
+    Returns each bridge's source, target, filters, and registration metadata.
+    """
+    rules = get_bridge_rules()
+    if not rules:
+        return "No active bridge rules."
+    return json.dumps(rules, indent=2)
 
 
 # ---------------------------------------------------------------------------

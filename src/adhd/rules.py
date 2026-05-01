@@ -72,6 +72,15 @@ def get_rules() -> dict[str, object]:
                 "description": "Self-describing bus protocol (this tool)",
                 "tool": "adhd_get_rules",
             },
+            "bridge": {
+                "description": "Cross-bus bridging — forward messages between independent buses",
+                "tools": [
+                    "adhd_bridge_register",
+                    "adhd_bridge_unregister",
+                    "adhd_bridge_list",
+                ],
+                "note": "Bridge rules stored on the bus; auto-forwarding happens in adhd_post",
+            },
         },
         "message_types": [
             {"type": "signin", "topic": "agent-lifecycle", "description": "Session started"},
@@ -82,6 +91,7 @@ def get_rules() -> dict[str, object]:
             {"type": "dependency", "topic": "dependency-graph", "description": "Declare deps"},
             {"type": "question", "topic": "*", "description": "Blocking question"},
             {"type": "answer", "topic": "*", "description": "Response to question"},
+            {"type": "bridge_rule", "topic": "bridge-rules", "description": "Bridge rule config"},
             {"type": "event", "topic": "*", "description": "General event"},
             {"type": "tool_use", "topic": "agent-activity", "description": "Tool used"},
             {"type": "request", "topic": "agent-request", "description": "Ask for help"},

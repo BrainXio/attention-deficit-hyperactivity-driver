@@ -14,6 +14,9 @@ import adhd.bus as bus
 import adhd.mcp_server as mcp_server_mod
 from adhd.mcp_server import (
     adhd_archive,
+    adhd_bridge_list,
+    adhd_bridge_register,
+    adhd_bridge_unregister,
     adhd_discover,
     adhd_get_rules,
     adhd_main_check,
@@ -604,3 +607,80 @@ async def test_archive_requires_token_enforcement(temp_bus: Path) -> None:
     with patch.dict(os.environ, {"ADHD_ENFORCE_ACCESS_CONTROL": "1"}):
         result = await adhd_archive()
     assert "access_denied" in result
+
+
+# ---------------------------------------------------------------------------
+# Cross-bus bridging
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_adhd_bridge_register(temp_bus: Path) -> None:
+    result = await adhd_bridge_register(target_slug="test-channel")
+    assert "Bridge registered" in result
+    assert "test-channel" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_bridge_unregister(temp_bus: Path) -> None:
+    await adhd_bridge_register(target_slug="test-channel")
+    result = await adhd_bridge_unregister(target_slug="test-channel")
+    assert "Bridge to 'test-channel' removed" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_bridge_list_empty(temp_bus: Path) -> None:
+    result = await adhd_bridge_list()
+    assert "No active bridge rules" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_bridge_list_with_rules(temp_bus: Path) -> None:
+    await adhd_bridge_register(target_slug="channel-a")
+    await adhd_bridge_register(target_slug="channel-b", type="status")
+    result = await adhd_bridge_list()
+    assert "channel-a" in result
+    assert "channel-b" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_bridge_unregister_then_list(temp_bus: Path) -> None:
+    await adhd_bridge_register(target_slug="chan-a")
+    await adhd_bridge_register(target_slug="chan-b")
+    await adhd_bridge_unregister(target_slug="chan-a")
+    result = await adhd_bridge_list()
+    assert "chan-a" not in result
+    assert "chan-b" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_post_forwards_to_bridge_target(temp_bus: Path) -> None:
+    target_slug = "bridge-target"
+    target_path = bus.resolve_bus_path(target_slug)
+    try:
+        await adhd_bridge_register(target_slug=target_slug, type="status")
+        await adhd_post(type="status", topic="agent-activity", payload='{"msg":"hello"}')
+        msgs = bus.read_messages(topic_filter="agent-activity")
+        assert any(m["type"] == "status" and m.get("bridged_from") is None for m in msgs)
+    finally:
+        target_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_adhd_post_does_not_forward_unmatched(temp_bus: Path) -> None:
+    target_slug = "filtered-target"
+    target_path = bus.resolve_bus_path(target_slug)
+    try:
+        await adhd_bridge_register(target_slug=target_slug, type="event")
+        result = await adhd_post(type="status", topic="agent-activity", payload='{"msg":"hello"}')
+        assert "Forwarded to:" not in result
+    finally:
+        target_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_adhd_post_bridge_loop_prevention(temp_bus: Path) -> None:
+    await adhd_bridge_register(target_slug="loop-channel", type="status")
+    result = await adhd_post(type="status", topic="agent-activity", payload='{"msg":"test"}')
+    forwarded_count = result.count("Forwarded to:")
+    assert forwarded_count == 1
