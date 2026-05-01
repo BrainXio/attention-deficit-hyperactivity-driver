@@ -44,6 +44,11 @@ repo-root/
     bus.py              # Core logic (resolve, I/O, validation, archival)
     models.py           # Pydantic models
     mcp_server.py       # FastMCP server
+    notifications.py    # Desktop and Telegram notification helpers
+    rules.py            # Protocol rules for self-describing bus
+  scripts/
+    detect-perf-level.py # Hardware probe for perf_level suggestion
+    hitl-notify.py       # HITL decision polling daemon
   .mcp.json             # MCP server registration
   .gitignore
   ~/.brainxio/adhd/
@@ -62,6 +67,10 @@ repo-root/
 | `ADHD_AGENT_ID`         | Agent identifier (default: `agent-{session_id}`)                     |
 | `ADHD_PERF_LEVEL`       | Supporter capability: `low`, `medium`, or `high` (default: `medium`) |
 | `ADHD_ENABLE_SUPPORTER` | Set to `1` to mark session as a supporter (additive)                 |
+| `ADHD_NOTIFY_URGENCY`   | notify-send urgency level: `low`, `normal`, `critical`               |
+| `ADHD_NOTIFY_INTERVAL`  | Polling interval in seconds for `hitl-notify.py --daemon`            |
+| `TELEGRAM_BOT_TOKEN`    | Telegram bot token for notification fallback                         |
+| `TELEGRAM_CHAT_ID`      | Telegram chat ID for notification fallback                           |
 
 ### Cross-Repo Coordination
 
@@ -79,20 +88,30 @@ The sole interface is `adhd-mcp`, a FastMCP stdio server. All agent interactions
 
 ### Tools
 
-| Tool                      | Purpose                                  |
-| ------------------------- | ---------------------------------------- |
-| `adhd_signin`             | Register session on the bus              |
-| `adhd_signout`            | Deregister session                       |
-| `adhd_read`               | Read/filter messages                     |
-| `adhd_post`               | Post a generic message                   |
-| `adhd_send`               | Send message to specific agent           |
-| `adhd_main_check`         | Check active supporter sessions          |
-| `adhd_validate`           | Validate bus integrity                   |
-| `adhd_archive`            | Archive old messages                     |
-| `adhd_mcp_change_prepare` | Signal server code change about to start |
-| `adhd_mcp_change_ready`   | Signal server code change complete       |
-| `adhd_mcp_change_check`   | Check if any server is being modified    |
-| `adhd_resolve`            | Print canonical bus path                 |
+| Tool                           | Purpose                                   |
+| ------------------------------ | ----------------------------------------- |
+| `adhd_signin`                  | Register session on the bus               |
+| `adhd_signout`                 | Deregister session                        |
+| `adhd_start_heartbeat`         | Start background heartbeat timer          |
+| `adhd_read`                    | Read/filter messages                      |
+| `adhd_post`                    | Post a generic message                    |
+| `adhd_send`                    | Send message to specific agent            |
+| `adhd_main_check`              | Check active supporter sessions           |
+| `adhd_validate`                | Validate bus integrity                    |
+| `adhd_archive`                 | Archive old messages and reap stale       |
+| `adhd_reap_stale`              | Auto-signout sessions with old heartbeats |
+| `adhd_resolve`                 | Print canonical bus path                  |
+| `adhd_get_rules`               | Return structured protocol rules          |
+| `adhd_mcp_change_prepare`      | Signal server code change about to start  |
+| `adhd_mcp_change_ready`        | Signal server code change complete        |
+| `adhd_mcp_change_check`        | Check if any server is being modified     |
+| `adhd_human_claim_decision`    | Claim a HITL decision for human review    |
+| `adhd_human_release_decision`  | Release a claimed HITL decision           |
+| `adhd_human_provide_rpe`       | Provide RPE feedback for a decision       |
+| `adhd_human_approve_gonogo`    | Approve or reject a Go/NoGo action        |
+| `adhd_human_split_duties`      | Split supporter duties across agents      |
+| `adhd_human_pending_decisions` | List all pending HITL decisions           |
+| `adhd_human_decision_history`  | Get history for a specific decision       |
 
 ## Message Flow
 
@@ -166,3 +185,84 @@ For "ready":
 ```
 
 The `adhd_mcp_change_check` tool scans the bus for servers that have a "preparing" without a matching "ready". If an agent crashes between prepare and ready, the server appears in-flux until the session's heartbeat expires naturally (20 min).
+
+## Merge-Queue Protocol
+
+Supporters coordinate PR merges through a claim/release protocol on the bus to avoid race conditions.
+
+### Protocol
+
+1. **Claim**: Supporters call `claim_pr(pr_number)` before reviewing a PR
+2. **Review and merge**: Only the claiming supporter acts on the PR
+3. **Release**: After merge or abandonment, call `release_pr(pr_number)`
+4. **Auto-expiry**: Claims auto-expire after 5 minutes to handle crashed agents
+5. **Stale detection**: Other supporters check active claims via `get_active_claims()` before processing
+
+### Bus Message Format
+
+```json
+{
+  "type": "event",
+  "topic": "merge-queue",
+  "payload": {
+    "pr": 42,
+    "action": "claim",
+    "session_id": "a1b2c3d4"
+  }
+}
+```
+
+## Human-In-The-Loop (HITL) Protocol
+
+When agents reach decisions requiring human judgment (PR approvals, risky deployments, duty reassignment), they post HITL messages to the bus. Humans or supporter agents review and resolve these decisions.
+
+### Decision Lifecycle
+
+1. **Claim**: Agent posts `hitl_claim` with decision_id, description, and urgency (low/medium/high)
+2. **Review**: Human claims the decision via `adhd_human_claim_decision`
+3. **Resolve**: Human approves/rejects (Go/NoGo) or provides RPE feedback
+4. **Release**: Unclaimed decisions can be released for another reviewer
+
+### Message Types
+
+| Type           | Purpose                                 |
+| -------------- | --------------------------------------- |
+| `hitl_claim`   | Register a new decision for review      |
+| `hitl_release` | Release a claim without resolving       |
+| `hitl_rpe`     | Record reward prediction error feedback |
+| `hitl_approve` | Approve or reject a Go/NoGo action      |
+| `hitl_split`   | Split or reassign supporter duties      |
+
+Decisions auto-expire after 30 minutes. Pending decisions are queried via `adhd_human_pending_decisions`.
+
+## Notification System
+
+When HITL decisions require human attention, the notification system delivers alerts through the best available channel.
+
+### Channels
+
+- **notify-send** (primary): Linux desktop notifications via D-Bus. Urgency configurable via `ADHD_NOTIFY_URGENCY`.
+- **Telegram Bot API** (fallback): If `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set, falls back to push notifications.
+- **Graceful degradation**: If neither channel is available, logs a warning and continues.
+
+### Polling Daemon
+
+`scripts/hitl-notify.py` polls the bus for new pending decisions and sends notifications. In `--daemon` mode it runs continuously with a configurable interval (`ADHD_NOTIFY_INTERVAL`, default 30s). Already-notified decisions are tracked in `.hitl_notified_ids` to avoid duplicate alerts.
+
+## Perf Level Detection
+
+`scripts/detect-perf-level.py` is a standalone hardware probe that suggests an `ADHD_PERF_LEVEL` value. It is not imported by `adhd-mcp` — agents run it once to configure their environment.
+
+### Detection Logic
+
+- **high**: GPU with >= 8GB VRAM, >= 8 CPU cores, >= 16GB RAM
+- **medium**: GPU with >= 4GB VRAM, or >= 4 CPU cores and >= 8GB RAM
+- **low**: everything else
+
+If `ADHD_PERF_LEVEL` is already set in the environment, the script prints the current value and exits without probing.
+
+## Stale Heartbeat Reaper
+
+`reap_stale_heartbeats()` auto-signs out sessions whose most recent heartbeat or signin is older than 15 minutes. This prevents crashed or exited agents from appearing active indefinitely.
+
+The reaper runs automatically during `adhd_archive` and can also be triggered manually via `adhd_reap_stale`. Each reaped session gets a signout message with reason `"stale-heartbeat-reaped"`, ensuring subsequent heartbeats from a restarted agent are not confused with the old session.
