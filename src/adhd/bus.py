@@ -670,6 +670,137 @@ def verify_agent(agent_id: str, challenge: str, signature: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Capability tokens — signed authorization claims
+# ---------------------------------------------------------------------------
+
+
+def _generate_token_id() -> str:
+    """Generate a short unique token identifier."""
+    import secrets
+
+    return "tok_" + secrets.token_hex(4)
+
+
+def issue_token(
+    issuer_id: str,
+    subject: str,
+    *,
+    allowed_tools: list[str] | None = None,
+    scopes: list[str] | None = None,
+    expiry_hours: int = 24,
+) -> str | None:
+    """Issue a signed capability token for *subject* signed by *issuer_id*.
+
+    The token is a dot-separated string: ``base64(payload).signature_hex``
+    where the payload is a JSON object with subject, issuer, timestamps,
+    allowed_tools, scopes, and token_id.  The signature is the issuer's
+    Ed25519 signature over the payload JSON.
+
+    Returns the encoded token string, or ``None`` if the issuer's private
+    key is missing.
+    """
+    import base64
+
+    private_key = load_private_key(issuer_id)
+    if private_key is None:
+        return None
+
+    payload: dict[str, Any] = {
+        "subject": subject,
+        "issuer": issuer_id,
+        "issued_at": now(),
+        "expires_at": (datetime.now(UTC) + timedelta(hours=expiry_hours)).isoformat(),
+        "allowed_tools": allowed_tools or [],
+        "scopes": scopes or [],
+        "token_id": _generate_token_id(),
+    }
+    payload_json = json.dumps(payload, separators=(",", ":"))
+    payload_b64 = base64.urlsafe_b64encode(payload_json.encode()).decode().rstrip("=")
+    signature = private_key.sign(payload_json.encode()).hex()
+    return f"{payload_b64}.{signature}"
+
+
+def verify_token(
+    token_str: str,
+    *,
+    required_tool: str | None = None,
+    caller_id: str | None = None,
+) -> dict[str, object]:
+    """Verify a signed capability token.
+
+    Checks:
+    1. Token format (two dot-separated parts)
+    2. Payload is valid JSON with required fields
+    3. Signature is valid against the issuer's Ed25519 public key
+    4. Token has not expired
+    5. ``caller_id`` matches ``subject`` (when provided)
+    6. ``required_tool`` is in ``allowed_tools`` (when provided)
+
+    Returns ``{"ok": True}`` or ``{"ok": False, "detail": "..."}``.
+    """
+    import base64
+
+    parts = token_str.split(".", 1)
+    if len(parts) != 2:
+        return {"ok": False, "detail": "Invalid token format"}
+
+    payload_b64, signature_hex = parts
+
+    try:
+        payload_bytes = base64.urlsafe_b64decode(payload_b64 + "==")
+        payload = json.loads(payload_bytes)
+    except Exception:
+        return {"ok": False, "detail": "Invalid token payload encoding"}
+
+    if not isinstance(payload, dict):
+        return {"ok": False, "detail": "Token payload must be a JSON object"}
+
+    for field in ("subject", "issuer", "expires_at", "token_id"):
+        if field not in payload:
+            return {"ok": False, "detail": f"Token missing required field: {field}"}
+
+    issuer_id = payload["issuer"]
+    public_key = load_public_key(issuer_id)
+    if public_key is None:
+        return {
+            "ok": False,
+            "detail": f"Issuer '{issuer_id}' has no public key",
+        }
+
+    payload_json = json.dumps(payload, separators=(",", ":"))
+    try:
+        public_key.verify(bytes.fromhex(signature_hex), payload_json.encode())
+    except Exception:
+        return {"ok": False, "detail": "Token signature invalid"}
+
+    expires_at_str = payload["expires_at"]
+    try:
+        expires_at = datetime.fromisoformat(expires_at_str)
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        if datetime.now(UTC) > expires_at:
+            return {"ok": False, "detail": "Token has expired"}
+    except (ValueError, TypeError):
+        return {"ok": False, "detail": "Token has invalid expires_at"}
+
+    if caller_id is not None and payload["subject"] != caller_id:
+        return {
+            "ok": False,
+            "detail": f"Token subject '{payload['subject']}' does not match caller '{caller_id}'",
+        }
+
+    if required_tool is not None:
+        allowed = payload.get("allowed_tools", [])
+        if required_tool not in allowed:
+            return {
+                "ok": False,
+                "detail": f"Token does not allow tool '{required_tool}'",
+            }
+
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
 # High-level helpers (signin, signout, heartbeat, post, send)
 # ---------------------------------------------------------------------------
 

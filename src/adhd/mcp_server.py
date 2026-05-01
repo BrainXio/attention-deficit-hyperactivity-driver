@@ -33,6 +33,7 @@ from adhd.bus import (
     hitl_provide_rpe,
     hitl_release_decision,
     hitl_split_duties,
+    issue_token,
     mark_mcp_change_ready,
     now,
     prepare_mcp_change,
@@ -48,6 +49,7 @@ from adhd.bus import (
     validate_bus,
     verify_agent,
     verify_signature,
+    verify_token,
     write_message,
 )
 from adhd.bus import (
@@ -137,18 +139,24 @@ PROTECTED_TOPICS = frozenset({"mcp-change"})
 
 
 @mcp.tool()
-async def adhd_post(type: str, topic: str, payload: str = "{}") -> str:
+async def adhd_post(type: str, topic: str, payload: str = "{}", token: str = "") -> str:
     """Post a message to the ADHD bus.
 
     Args:
         type: Message type (status, schema, dependency, event, tool_use)
         topic: Message topic (agent-activity, schema, dependency-graph, etc.)
         payload: JSON string for the payload (must be a JSON object)
+        token: Optional capability token for access control
     """
     if type in PROTECTED_TYPES:
         return f"ERROR: Message type '{type}' is protected. Use the dedicated tool instead."
     if topic in PROTECTED_TOPICS:
         return f"ERROR: Message topic '{topic}' is protected. Use the dedicated tool instead."
+    if token:
+        caller = agent_id()
+        result = verify_token(token, required_tool="adhd_post", caller_id=caller)
+        if not result["ok"]:
+            return json.dumps({"error": "access_denied", "detail": result["detail"]})
     try:
         payload_dict: dict[str, object] = json.loads(payload)
     except json.JSONDecodeError as exc:
@@ -160,7 +168,11 @@ async def adhd_post(type: str, topic: str, payload: str = "{}") -> str:
 
 @mcp.tool()
 async def adhd_send(
-    to: str, message: str, topic: str = "agent-request", type: str = "request"
+    to: str,
+    message: str,
+    topic: str = "agent-request",
+    type: str = "request",
+    token: str = "",
 ) -> str:
     """Send a request or message to another agent.
 
@@ -169,9 +181,15 @@ async def adhd_send(
         message: Message body
         topic: Message topic (default: agent-request)
         type: Message type: request, question, or event
+        token: Optional capability token for access control
     """
     if type in PROTECTED_TYPES:
         return f"ERROR: Message type '{type}' is protected. Use the dedicated tool instead."
+    if token:
+        caller = agent_id()
+        result = verify_token(token, required_tool="adhd_send", caller_id=caller)
+        if not result["ok"]:
+            return json.dumps({"error": "access_denied", "detail": result["detail"]})
     return bus_send(to=to, message=message, topic=topic, type_=type)
 
 
@@ -367,6 +385,73 @@ async def adhd_verify_agent(agent_id: str, challenge: str, signature: str) -> st
             ),
         }
     )
+
+
+@mcp.tool()
+async def adhd_issue_token(
+    issuer_id: str,
+    subject: str,
+    allowed_tools: str = "[]",
+    scopes: str = "[]",
+    expiry_hours: int = 24,
+) -> str:
+    """Issue a signed capability token for *subject* signed by *issuer_id*.
+
+    Tokens allow agents to prove authorization for specific tools and
+    scopes.  The issuer must have an Ed25519 keypair (use adhd_gen_key
+    first).  Returns a signed token string that can be verified with
+    adhd_verify_token and passed to tools like adhd_post and adhd_send.
+
+    Args:
+        issuer_id: Agent ID of the token issuer (must have private key)
+        subject: Agent ID that will use the token
+        allowed_tools: JSON list of tool names the token permits
+        scopes: JSON list of scope strings (e.g. '["read", "write"]')
+        expiry_hours: Token validity duration in hours (default 24)
+    """
+    try:
+        tools_list: list[str] = json.loads(allowed_tools)
+    except json.JSONDecodeError:
+        return json.dumps({"ok": False, "detail": "allowed_tools must be valid JSON array"})
+    try:
+        scopes_list: list[str] = json.loads(scopes)
+    except json.JSONDecodeError:
+        return json.dumps({"ok": False, "detail": "scopes must be valid JSON array"})
+
+    token = issue_token(
+        issuer_id,
+        subject,
+        allowed_tools=tools_list,
+        scopes=scopes_list,
+        expiry_hours=expiry_hours,
+    )
+    if token is None:
+        return json.dumps({"ok": False, "detail": f"Issuer '{issuer_id}' has no private key"})
+    return json.dumps({"ok": True, "token": token})
+
+
+@mcp.tool()
+async def adhd_verify_token(
+    token: str,
+    required_tool: str = "",
+    caller_id: str = "",
+) -> str:
+    """Verify a signed capability token.
+
+    Checks token signature, expiry, tool permission, and caller
+    identity.  Returns ok=True when all checks pass.
+
+    Args:
+        token: The signed token string (from adhd_issue_token)
+        required_tool: Optional tool name the token must allow
+        caller_id: Optional agent ID that must match the token subject
+    """
+    result = verify_token(
+        token,
+        required_tool=required_tool or None,
+        caller_id=caller_id or None,
+    )
+    return json.dumps(result)
 
 
 # ---------------------------------------------------------------------------
