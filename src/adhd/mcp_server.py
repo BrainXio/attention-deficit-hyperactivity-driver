@@ -18,7 +18,9 @@ from adhd.bus import (
     check_mcp_change_status,
     check_noise_threshold,
     check_supporters,
+    create_snapshot,
     current_branch,
+    discover_buses,
     get_decision_history,
     get_file_size,
     get_noise_metrics,
@@ -282,6 +284,28 @@ async def adhd_reap_stale() -> str:
 async def adhd_resolve() -> str:
     """Print the absolute path to the ADHD bus file for the current repo."""
     return str(resolve())
+
+
+@mcp.tool()
+async def adhd_snapshot() -> str:
+    """Create a full-state checkpoint of the bus for recovery and replay.
+
+    Returns message count, timestamp range, registered and active agents,
+    subscription state, and bus file path. Read-only diagnostic tool.
+    """
+    return json.dumps(create_snapshot(), indent=2)
+
+
+@mcp.tool()
+async def adhd_discover() -> str:
+    """Scan for active bus channels on this machine.
+
+    Returns metadata for each discovered bus: slug, message count,
+    last activity timestamp, file size, and agents seen. Agents can
+    call this on startup to find the most populated channel.
+    """
+    buses = discover_buses()
+    return json.dumps(buses, indent=2) if buses else "No bus channels found."
 
 
 @mcp.tool()

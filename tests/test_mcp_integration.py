@@ -14,6 +14,7 @@ import adhd.bus as bus
 import adhd.mcp_server as mcp_server_mod
 from adhd.mcp_server import (
     adhd_archive,
+    adhd_discover,
     adhd_get_rules,
     adhd_main_check,
     adhd_mcp_change_check,
@@ -28,6 +29,7 @@ from adhd.mcp_server import (
     adhd_send,
     adhd_signin,
     adhd_signout,
+    adhd_snapshot,
     adhd_start_heartbeat,
     adhd_subscribe,
     adhd_unsubscribe,
@@ -420,3 +422,42 @@ def _sample_message() -> dict[str, Any]:
         "topic": "agent-lifecycle",
         "payload": {},
     }
+
+
+# ---------------------------------------------------------------------------
+# Bus snapshot tool
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_adhd_snapshot_empty(temp_bus: Path) -> None:
+    """adhd_snapshot returns a structured checkpoint of an empty bus."""
+    result = json.loads(await adhd_snapshot())
+    assert result["message_count"] == 0
+    assert "bus_path" in result
+    assert "registered_agents" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_snapshot_with_data(temp_bus: Path) -> None:
+    """adhd_snapshot reflects messages on the bus."""
+    bus.write_message(_sample_message())
+    result = json.loads(await adhd_snapshot())
+    assert result["message_count"] >= 1
+    assert result["file_size_bytes"] > 0
+
+
+# ---------------------------------------------------------------------------
+# Bus discovery tool
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_adhd_discover(temp_bus: Path) -> None:
+    """adhd_discover finds the current channel."""
+    bus.write_message(_sample_message())
+    result = json.loads(await adhd_discover())
+    assert isinstance(result, list)
+    assert len(result) >= 1
+    assert "slug" in result[0]
+    assert "message_count" in result[0]
