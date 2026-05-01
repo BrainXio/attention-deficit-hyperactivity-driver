@@ -261,7 +261,7 @@ async def adhd_validate() -> str:
 
 @mcp.tool()
 async def adhd_archive() -> str:
-    """Archive old messages when the bus exceeds 10,000 lines."""
+    """Archive old messages when the bus exceeds 10,000 lines, or warn at 80% capacity."""
     return archive()
 
 
