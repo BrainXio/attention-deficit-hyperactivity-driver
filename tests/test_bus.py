@@ -1300,3 +1300,144 @@ def test_discover_buses_sorted(tmp_path: Path) -> None:
         results = bus.discover_buses()
     assert results[0]["slug"] == "a-chan"
     assert results[1]["slug"] == "z-chan"
+
+
+# ---------------------------------------------------------------------------
+# Cross-bus bridging
+# ---------------------------------------------------------------------------
+
+
+def test_register_bridge_writes_message(temp_bus: Path) -> None:
+    bus.register_bridge("target-bus", type_filter="status")
+    msgs = bus.read_messages(topic_filter="bridge-rules")
+    assert len(msgs) == 1
+    assert msgs[0]["type"] == "bridge_rule"
+    assert msgs[0]["payload"]["target_slug"] == "target-bus"
+    assert msgs[0]["payload"]["action"] == "register"
+    assert msgs[0]["payload"]["filters"] == {"type": "status"}
+
+
+def test_register_bridge_no_filters(temp_bus: Path) -> None:
+    bus.register_bridge("target-bus")
+    msgs = bus.read_messages(topic_filter="bridge-rules")
+    assert msgs[0]["payload"]["filters"] == {}
+
+
+def test_unregister_bridge_writes_message(temp_bus: Path) -> None:
+    bus.register_bridge("target-bus")
+    bus.unregister_bridge("target-bus")
+    msgs = bus.read_messages(topic_filter="bridge-rules")
+    assert msgs[-1]["payload"]["action"] == "unregister"
+
+
+def test_get_bridge_rules_empty(temp_bus: Path) -> None:
+    assert bus.get_bridge_rules() == []
+
+
+def test_get_bridge_rules_active(temp_bus: Path) -> None:
+    bus.register_bridge("target-a")
+    bus.register_bridge("target-b", type_filter="event")
+    rules = bus.get_bridge_rules()
+    assert len(rules) == 2
+    slugs = {r["target_slug"] for r in rules}
+    assert slugs == {"target-a", "target-b"}
+
+
+def test_get_bridge_rules_unregistered_removed(temp_bus: Path) -> None:
+    bus.register_bridge("target-a")
+    bus.register_bridge("target-b")
+    bus.unregister_bridge("target-a")
+    rules = bus.get_bridge_rules()
+    assert len(rules) == 1
+    assert rules[0]["target_slug"] == "target-b"
+
+
+def test_get_bridge_targets_no_match(temp_bus: Path) -> None:
+    msg = _sample_message()
+    assert bus.get_bridge_targets(msg) == []
+
+
+def test_get_bridge_targets_match_type(temp_bus: Path) -> None:
+    bus.register_bridge("target-bus", type_filter="status")
+    msg = _sample_message()
+    msg["type"] = "status"
+    targets = bus.get_bridge_targets(msg)
+    assert targets == ["target-bus"]
+
+
+def test_get_bridge_targets_match_topic(temp_bus: Path) -> None:
+    bus.register_bridge("target-bus", topic_filter="agent-activity")
+    msg = _sample_message()
+    msg["topic"] = "agent-activity"
+    targets = bus.get_bridge_targets(msg)
+    assert targets == ["target-bus"]
+
+
+def test_get_bridge_targets_match_both_filters(temp_bus: Path) -> None:
+    bus.register_bridge("target-bus", type_filter="status", topic_filter="agent-activity")
+    msg = _sample_message()
+    msg["type"] = "status"
+    msg["topic"] = "wrong-topic"
+    assert bus.get_bridge_targets(msg) == []
+    msg["topic"] = "agent-activity"
+    targets = bus.get_bridge_targets(msg)
+    assert targets == ["target-bus"]
+
+
+def test_get_bridge_targets_no_filters_forward_all(temp_bus: Path) -> None:
+    bus.register_bridge("target-bus")
+    msg = _sample_message()
+    msg["type"] = "status"
+    targets = bus.get_bridge_targets(msg)
+    assert targets == ["target-bus"]
+
+
+def test_get_bridge_targets_no_filters_skips_bridge_rules(temp_bus: Path) -> None:
+    bus.register_bridge("target-bus")
+    msg = _sample_message()
+    msg["type"] = "bridge_rule"
+    targets = bus.get_bridge_targets(msg)
+    assert targets == []
+
+
+def test_get_bridge_targets_loop_prevention(temp_bus: Path) -> None:
+    bus.register_bridge("target-bus", type_filter="status")
+    msg = _sample_message()
+    msg["type"] = "status"
+    msg["bridged_from"] = "target-bus"
+    targets = bus.get_bridge_targets(msg)
+    assert targets == []
+
+
+def test_resolve_bus_path(temp_bus: Path) -> None:
+    path = bus.resolve_bus_path("my-channel")
+    assert path.name == "bus.jsonl"
+    assert path.parent.name == "my-channel"
+
+
+def test_forward_message_writes_to_target(temp_bus: Path) -> None:
+    target_slug = "forward-target"
+    target_path = bus.resolve_bus_path(target_slug)
+    try:
+        msg = _sample_message()
+        msg["payload"] = {"key": "value"}
+        bus.forward_message(msg, target_slug)
+        assert target_path.exists()
+        content = json.loads(target_path.read_text().strip())
+        assert content["payload"] == {"key": "value"}
+        assert content["bridged_from"] == bus._bus_slug()
+    finally:
+        target_path.unlink(missing_ok=True)
+
+
+def test_forward_message_includes_bridged_from(temp_bus: Path) -> None:
+    target_slug = "loop-target"
+    target_path = bus.resolve_bus_path(target_slug)
+    try:
+        msg = _sample_message()
+        bus.forward_message(msg, target_slug)
+        content = json.loads(target_path.read_text().strip())
+        assert "bridged_from" in content
+        assert content["bridged_from"] == bus._bus_slug()
+    finally:
+        target_path.unlink(missing_ok=True)

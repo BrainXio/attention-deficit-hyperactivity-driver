@@ -14,6 +14,9 @@ import adhd.bus as bus
 import adhd.mcp_server as mcp_server_mod
 from adhd.mcp_server import (
     adhd_archive,
+    adhd_bridge_list,
+    adhd_bridge_register,
+    adhd_bridge_unregister,
     adhd_discover,
     adhd_get_rules,
     adhd_main_check,
@@ -268,6 +271,44 @@ async def test_adhd_start_heartbeat(temp_bus: Path) -> None:
     # Second call should report already running
     result2 = await adhd_start_heartbeat()
     assert "already running" in result2.lower()
+
+
+# ---------------------------------------------------------------------------
+# Cross-bus bridging tools
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bridge_register(temp_bus: Path) -> None:
+    """Registering a bridge via MCP returns success."""
+    result = await adhd_bridge_register("target-bus", type="status")
+    assert "Bridge registered" in result
+    assert "target-bus" in result
+
+
+@pytest.mark.asyncio
+async def test_bridge_unregister(temp_bus: Path) -> None:
+    """Unregistering a bridge via MCP returns success."""
+    await adhd_bridge_register("target-bus")
+    result = await adhd_bridge_unregister("target-bus")
+    assert "removed" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_bridge_list_empty(temp_bus: Path) -> None:
+    """Listing bridges when none are registered."""
+    result = await adhd_bridge_list()
+    assert "No active bridge rules" in result
+
+
+@pytest.mark.asyncio
+async def test_bridge_list_with_rules(temp_bus: Path) -> None:
+    """Listing bridges returns registered rules."""
+    await adhd_bridge_register("bus-a")
+    await adhd_bridge_register("bus-b", type="event")
+    result = await adhd_bridge_list()
+    data = json.loads(result)
+    assert len(data) == 2
 
 
 # ---------------------------------------------------------------------------
