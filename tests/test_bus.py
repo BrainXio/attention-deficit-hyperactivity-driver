@@ -282,6 +282,74 @@ def test_read_messages_agent_filter(temp_bus: Path) -> None:
     assert msgs[0]["agent_id"] == "alice"
 
 
+def test_read_messages_recipient_filter_exact(temp_bus: Path) -> None:
+    msg1 = _sample_message()
+    msg1["payload"] = {"recipient": "agent-xyz", "message": "hello"}
+    bus.write_message(msg1)
+
+    msg2 = _sample_message()
+    msg2["payload"] = {"recipient": "agent-abc", "message": "hi"}
+    bus.write_message(msg2)
+
+    msgs = bus.read_messages(recipient_filter="agent-xyz")
+    assert len(msgs) == 1
+    assert msgs[0]["payload"]["recipient"] == "agent-xyz"
+
+
+def test_read_messages_recipient_filter_all_wildcard(temp_bus: Path) -> None:
+    msg1 = _sample_message()
+    msg1["payload"] = {"recipient": "all", "message": "broadcast"}
+    bus.write_message(msg1)
+
+    msg2 = _sample_message()
+    msg2["payload"] = {"recipient": "agent-specific", "message": "direct"}
+    bus.write_message(msg2)
+
+    msgs = bus.read_messages(recipient_filter="all")
+    assert len(msgs) == 1
+    assert msgs[0]["payload"]["recipient"] == "all"
+
+
+def test_read_messages_recipient_filter_no_match(temp_bus: Path) -> None:
+    msg = _sample_message()
+    msg["payload"] = {"recipient": "agent-known", "message": "data"}
+    bus.write_message(msg)
+
+    msgs = bus.read_messages(recipient_filter="agent-unknown")
+    assert msgs == []
+
+
+def test_read_messages_recipient_filter_default_none(temp_bus: Path) -> None:
+    msg1 = _sample_message()
+    msg1["payload"] = {}
+    bus.write_message(msg1)
+
+    msg2 = _sample_message()
+    msg2["payload"] = {"recipient": "someone", "message": "hi"}
+    bus.write_message(msg2)
+
+    msgs = bus.read_messages()
+    assert len(msgs) == 2
+
+
+def test_read_messages_recipient_filter_missing_payload(temp_bus: Path) -> None:
+    msg1 = _sample_message()
+    msg1["payload"] = {"recipient": "agent-target", "message": "found"}
+    bus.write_message(msg1)
+
+    msg2 = _sample_message()
+    msg2["payload"] = {}
+    bus.write_message(msg2)
+
+    msg3 = _sample_message()
+    msg3["payload"] = "not-a-dict"
+    bus.write_message(msg3)
+
+    msgs = bus.read_messages(recipient_filter="agent-target")
+    assert len(msgs) == 1
+    assert msgs[0]["payload"]["recipient"] == "agent-target"
+
+
 def test_read_skips_invalid_json(temp_bus: Path) -> None:
     temp_bus.write_text("not json\n")
     assert bus.read_messages() == []
