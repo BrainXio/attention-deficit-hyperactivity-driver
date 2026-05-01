@@ -29,6 +29,7 @@ from adhd.bus import (
     now,
     prepare_mcp_change,
     read_messages,
+    reap_stale_heartbeats,
     resolve,
     session_id,
     signin,
@@ -244,6 +245,19 @@ async def adhd_validate() -> str:
 async def adhd_archive() -> str:
     """Archive old messages when the bus exceeds 10,000 lines."""
     return archive()
+
+
+@mcp.tool()
+async def adhd_reap_stale() -> str:
+    """Auto-signout sessions with heartbeats older than 15 minutes.
+
+    Returns a JSON list of reaped sessions. Keeps the active-supporters
+    list accurate when agents crash or exit without signing out.
+    """
+    reaped = reap_stale_heartbeats()
+    if not reaped:
+        return "No stale sessions to reap."
+    return json.dumps(reaped, indent=2)
 
 
 @mcp.tool()

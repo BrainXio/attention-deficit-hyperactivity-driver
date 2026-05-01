@@ -643,3 +643,91 @@ def test_archive_over_limit(temp_bus: Path) -> None:
     assert "Retained" in msg
     lines = temp_bus.read_text().splitlines()
     assert len(lines) == 2
+
+
+# ---------------------------------------------------------------------------
+# Stale heartbeat reaper
+# ---------------------------------------------------------------------------
+
+
+def _write_heartbeat(session_id: str, agent_id: str, hours_ago: float = 0) -> None:
+    ts = (datetime.now(UTC) - timedelta(hours=hours_ago)).isoformat()
+    bus.write_message(
+        {
+            "timestamp": ts,
+            "session_id": session_id,
+            "agent_id": agent_id,
+            "branch": "feat/test",
+            "type": "heartbeat",
+            "topic": "agent-lifecycle",
+            "payload": {"supporter": True},
+        }
+    )
+
+
+def test_reap_stale_no_sessions(temp_bus: Path) -> None:
+    reaped = bus.reap_stale_heartbeats()
+    assert reaped == []
+
+
+def test_reap_stale_signout_clears_session(temp_bus: Path) -> None:
+    _write_heartbeat("sess-1", "agent-a", hours_ago=0.5)
+    bus.write_message(
+        {
+            "timestamp": bus.now(),
+            "session_id": "sess-1",
+            "agent_id": "agent-a",
+            "branch": "feat/test",
+            "type": "signout",
+            "topic": "agent-lifecycle",
+            "payload": {},
+        }
+    )
+    reaped = bus.reap_stale_heartbeats()
+    assert reaped == []
+
+
+def test_reap_stale_recent_heartbeat_not_reaped(temp_bus: Path) -> None:
+    _write_heartbeat("sess-1", "agent-a", hours_ago=0)
+    reaped = bus.reap_stale_heartbeats()
+    assert reaped == []
+
+
+def test_reap_stale_old_heartbeat_reaped(temp_bus: Path) -> None:
+    _write_heartbeat("sess-1", "agent-a", hours_ago=0.5)
+    reaped = bus.reap_stale_heartbeats()
+    assert len(reaped) == 1
+    assert reaped[0]["session_id"] == "sess-1"
+    assert reaped[0]["agent_id"] == "agent-a"
+
+
+def test_reap_stale_only_reaps_when_latest_is_old(temp_bus: Path) -> None:
+    _write_heartbeat("sess-1", "agent-a", hours_ago=0.5)
+    _write_heartbeat("sess-1", "agent-a", hours_ago=0)
+    reaped = bus.reap_stale_heartbeats()
+    assert reaped == []
+
+
+def test_reap_stale_multiple_sessions(temp_bus: Path) -> None:
+    _write_heartbeat("sess-1", "agent-a", hours_ago=0.5)
+    _write_heartbeat("sess-2", "agent-b", hours_ago=0.3)
+    _write_heartbeat("sess-3", "agent-c", hours_ago=0)
+    reaped = bus.reap_stale_heartbeats()
+    reaped_ids = {r["session_id"] for r in reaped}
+    assert reaped_ids == {"sess-1", "sess-2"}
+
+
+def test_reap_stale_writes_signout_message(temp_bus: Path) -> None:
+    _write_heartbeat("sess-1", "agent-a", hours_ago=0.5)
+    bus.reap_stale_heartbeats()
+    msgs = bus.read_messages(type_filter="signout")
+    assert len(msgs) == 1
+    assert msgs[0]["payload"]["reason"] == "stale-heartbeat-reaped"
+
+
+def test_reap_stale_does_not_reap_twice(temp_bus: Path) -> None:
+    _write_heartbeat("sess-1", "agent-a", hours_ago=0.5)
+    first = bus.reap_stale_heartbeats()
+    assert len(first) == 1
+    second = bus.reap_stale_heartbeats()
+    assert second == []
