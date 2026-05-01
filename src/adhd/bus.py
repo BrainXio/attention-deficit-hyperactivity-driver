@@ -119,6 +119,59 @@ def get_perf_level() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Lamport logical clocks
+# ---------------------------------------------------------------------------
+
+_lamport_clock: int = 0
+
+
+def get_lamport_time() -> int:
+    """Return the current Lamport logical clock value for this session."""
+    return _lamport_clock
+
+
+def _tick_lamport() -> int:
+    """Increment the Lamport clock (before sending a message) and return the new value."""
+    global _lamport_clock
+    _lamport_clock += 1
+    return _lamport_clock
+
+
+def _update_lamport_from_messages(messages: list[dict[str, Any]]) -> None:
+    """Update local Lamport clock from received messages.
+
+    For each message with a lamport_clock field, apply the Lamport receive rule:
+    C = max(C, C_msg) + 1
+    """
+    global _lamport_clock
+    for msg in messages:
+        msg_clock = msg.get("lamport_clock", 0)
+        if isinstance(msg_clock, (int, float)) and msg_clock > 0:
+            _lamport_clock = max(_lamport_clock, int(msg_clock)) + 1
+
+
+def happens_before(msg_a: dict[str, Any], msg_b: dict[str, Any]) -> bool:
+    """Return True if msg_a potentially happened before msg_b.
+
+    Based on Lamport clocks: if C(a) < C(b), then a → b is possible.
+    If C(a) >= C(b), then a could not have caused b (concurrent or b → a).
+
+    When both messages share the same agent_id, a lower clock definitively
+    means a happened before b.
+    """
+    clock_a = msg_a.get("lamport_clock", 0)
+    clock_b = msg_b.get("lamport_clock", 0)
+    if not isinstance(clock_a, (int, float)) or not isinstance(clock_b, (int, float)):
+        return False
+    if int(clock_a) == 0 and int(clock_b) == 0:
+        return False
+    same_agent = msg_a.get("agent_id") == msg_b.get("agent_id")
+    if same_agent:
+        return int(clock_a) < int(clock_b)
+    return int(clock_a) < int(clock_b)
+
+
+# ---------------------------------------------------------------------------
 # Bus I/O
 # ---------------------------------------------------------------------------
 
@@ -169,7 +222,8 @@ def verify_signature(msg: dict[str, Any]) -> bool:
 
 
 def write_message(msg: dict[str, Any]) -> None:
-    """Append a message to the bus after signing and validating it."""
+    """Append a message to the bus after stamping with Lamport clock and signing."""
+    msg["lamport_clock"] = _tick_lamport()
     msg = sign_message(msg)
     bus_path = resolve()
     with bus_path.open("a") as f:
@@ -218,7 +272,9 @@ def read_messages(
                     continue
             messages.append(msg)
 
-    return messages[-limit:]
+    result = messages[-limit:]
+    _update_lamport_from_messages(result)
+    return result
 
 
 def get_file_size() -> int:
@@ -281,7 +337,9 @@ def read_messages_since(
                     continue
             messages.append(msg)
 
-    return messages[-limit:], file_size
+    result = messages[-limit:]
+    _update_lamport_from_messages(result)
+    return result, file_size
 
 
 # ---------------------------------------------------------------------------

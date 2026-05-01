@@ -1,110 +1,141 @@
 {
   "repository": "attention-deficit-hyperactivity-driver",
   "package": "adhd",
-  "role": "Coordination nervous system — multi-agent message bus",
+  "role": "Coordination nervous system \u2014 multi-agent message bus",
   "last_updated": "2026-05-01",
   "status": "done",
   "completed": [
     "Append-only JSONL bus with resolve, I/O, validation, archival",
     "MCP server with 10+ tools (signin, signout, heartbeat, post, read, send, archive, validate, resolve, main_check)",
     "Supporter model: ADHD_ENABLE_SUPPORTER replaces exclusive coordinator claim/release/elect",
-    "Env var rename: ADHD_BUS_REPO_SLUG → ADHD_BUS_SLUG",
+    "Env var rename: ADHD_BUS_REPO_SLUG \u2192 ADHD_BUS_SLUG",
     "ADHD_BUS_PATH clarified as storage directory prefix (default ~/.brainxio/adhd)",
     "Tests with mocked path resolution and supporter coverage",
     ".mcp.json aligned across all 5 repos with absolute paths",
-    "Repo renamed from BrainXio/ADHD → BrainXio/attention-deficit-hyperactivity-driver",
+    "Repo renamed from BrainXio/ADHD \u2192 BrainXio/attention-deficit-hyperactivity-driver",
     "MCP change notification protocol (preparing/ready) on bus",
     "Merge-queue claim protocol on bus (claim/release with 5-min TTL)",
     "Bus path resolution: detect parent repo when inside git submodule via --show-superproject-working-tree",
     "pyproject.toml aligned with BrainXio standard (pydocstyle, ruff format, slow marker)",
-    "adhd-8: HITL MCP server extension — 6 tools (claim_decision, release_decision, provide_rpe, approve_gonogo, split_duties, pending_decisions, decision_history) — PR #12",
-    "adhd-10: feat/hitl-bus-fixes merged into main, reconciled with rules.py — PR #12",
-    "adhd-7: Expose ADHD rules/skills via MCP (adhd_get_rules tool, rules.py) — PR #13",
-    "adhd-9: HITL notification system (desktop + Telegram fallback, hitl-notify.py polling daemon) — PR #16",
-    "adhd-1/2: ADHD_PERF_LEVEL env var in heartbeat payload, detect-perf-level.py hardware probe script — PR #17",
-    "adhd-4: Stale heartbeat reaper (reap_stale_heartbeats, 15-min threshold) — PR #18",
-    "adhd-5: Document supporter model, merge-queue protocol, HITL, notifications, perf detection, reaper — PR #19",
-    "adhd-14: Recipient filter on adhd_read (exact match + 'all' wildcard) — PR #20",
-    "adhd-16: Push/event-driven delivery — subscribe, unsubscribe, poll, wait, migrate_to_push — PR #24",
-    "adhd-15: Agent-noise-threshold monitoring — get_noise_metrics, check_noise_threshold, adhd_noise_check tool, density warnings on bus",
-    "adhd-17: Message signing — HMAC on each JSONL line (sign_message, verify_signature, adhd_verify_signature tool)",
-    "adhd-20: Agent verification — Ed25519 cryptographic identity (generate_keypair, sign_challenge, verify_agent, identity proof in signin)",
-    "adhd-21: Capability tokens — Ed25519-signed authorization claims (issue_token, verify_token, adhd_issue_token, adhd_verify_token, token enforcement on adhd_post/adhd_send)",
-    "adhd-22: Bus access control — read/write role enforcement via token scopes (required_scope, _check_access, ADHD_ENFORCE_ACCESS_CONTROL)"
+    "adhd-8: HITL MCP server extension \u2014 6 tools (claim_decision, release_decision, provide_rpe, approve_gonogo, split_duties, pending_decisions, decision_history) \u2014 PR #12",
+    "adhd-10: feat/hitl-bus-fixes merged into main, reconciled with rules.py \u2014 PR #12",
+    "adhd-7: Expose ADHD rules/skills via MCP (adhd_get_rules tool, rules.py) \u2014 PR #13",
+    "adhd-9: HITL notification system (desktop + Telegram fallback, hitl-notify.py polling daemon) \u2014 PR #16",
+    "adhd-1/2: ADHD_PERF_LEVEL env var in heartbeat payload, detect-perf-level.py hardware probe script \u2014 PR #17",
+    "adhd-4: Stale heartbeat reaper (reap_stale_heartbeats, 15-min threshold) \u2014 PR #18",
+    "adhd-5: Document supporter model, merge-queue protocol, HITL, notifications, perf detection, reaper \u2014 PR #19",
+    "adhd-14: Recipient filter on adhd_read (exact match + 'all' wildcard) \u2014 PR #20",
+    "adhd-16: Push/event-driven delivery \u2014 subscribe, unsubscribe, poll, wait, migrate_to_push \u2014 PR #24",
+    "adhd-15: Agent-noise-threshold monitoring \u2014 get_noise_metrics, check_noise_threshold, adhd_noise_check tool, density warnings on bus",
+    "adhd-17: Message signing \u2014 HMAC on each JSONL line (sign_message, verify_signature, adhd_verify_signature tool)",
+    "adhd-20: Agent verification \u2014 Ed25519 cryptographic identity (generate_keypair, sign_challenge, verify_agent, identity proof in signin)",
+    "adhd-21: Capability tokens \u2014 Ed25519-signed authorization claims (issue_token, verify_token, adhd_issue_token, adhd_verify_token, token enforcement on adhd_post/adhd_send)",
+    "adhd-22: Bus access control \u2014 read/write role enforcement via token scopes (required_scope, _check_access, ADHD_ENFORCE_ACCESS_CONTROL)",
+    "adhd-18: Lamport clocks \u2014 causal ordering (get_lamport_time, happens_before, adhd_get_lamport_time, adhd_compare_causality tools, 17 tests, models/bus/mcp_server/rules updated) \u2014 PR #32"
   ],
   "in_progress": [],
   "pending": [
     {
-      "id": "adhd-18",
-      "subject": "Causal ordering — Lamport clocks",
-      "description": "Add Lamport logical clock to each message for partial causal ordering across agents. Each agent increments its clock on send and updates on receive. Enable happens-before comparison between messages.",
-      "kanban_status": "ready",
-      "priority": {"level": 2, "rpe_weight": 0.7, "value_score": 70},
-      "done": true,
-      "dependencies": ["adhd-17"]
-    },
-    {
       "id": "adhd-19",
-      "subject": "Bus snapshots — periodic full-state checkpoints",
+      "subject": "Bus snapshots \u2014 periodic full-state checkpoints",
       "description": "Periodically write full bus state checkpoints for faster recovery and replay. Snapshot includes message count, timestamp range, and agent registry state. Add adhd_snapshot tool.",
       "kanban_status": "done",
-      "priority": {"level": 2, "rpe_weight": 0.6, "value_score": 65},
+      "priority": {
+        "level": 2,
+        "rpe_weight": 0.6,
+        "value_score": 65
+      },
       "done": true,
       "dependencies": []
     },
     {
       "id": "adhd-20",
-      "subject": "Agent verification — cryptographic identity",
+      "subject": "Agent verification \u2014 cryptographic identity",
       "description": "Implement cryptographic agent identity beyond session ID. Each agent gets an Ed25519 keypair. Signin includes a signature proving key ownership. Prevents agent impersonation.",
       "kanban_status": "done",
-      "priority": {"level": 1, "rpe_weight": 0.85, "value_score": 85},
+      "priority": {
+        "level": 1,
+        "rpe_weight": 0.85,
+        "value_score": 85
+      },
       "done": true,
-      "dependencies": ["adhd-17"]
+      "dependencies": [
+        "adhd-17"
+      ]
     },
     {
       "id": "adhd-21",
-      "subject": "Capability tokens — signed authorization claims",
+      "subject": "Capability tokens \u2014 signed authorization claims",
       "description": "Issue signed capability tokens so agents can prove what they're authorized to do. Tokens include allowed tools, scopes, and expiry. Verified on each MCP tool invocation.",
       "kanban_status": "done",
-      "priority": {"level": 2, "rpe_weight": 0.8, "value_score": 75},
+      "priority": {
+        "level": 2,
+        "rpe_weight": 0.8,
+        "value_score": 75
+      },
       "done": true,
-      "dependencies": ["adhd-20"]
+      "dependencies": [
+        "adhd-20"
+      ]
     },
     {
       "id": "adhd-22",
-      "subject": "Bus access control — read-only vs read-write roles",
+      "subject": "Bus access control \u2014 read-only vs read-write roles",
       "description": "Enforce role-based access control at the bus level. Read-only agents can only call read/poll. Read-write agents can post/send. Roles encoded in capability tokens.",
       "kanban_status": "done",
-      "priority": {"level": 2, "rpe_weight": 0.75, "value_score": 70},
+      "priority": {
+        "level": 2,
+        "rpe_weight": 0.75,
+        "value_score": 70
+      },
       "done": true,
-      "dependencies": ["adhd-21"]
+      "dependencies": [
+        "adhd-21"
+      ]
     },
     {
       "id": "adhd-23",
-      "subject": "Bus discovery — find active buses on the machine",
+      "subject": "Bus discovery \u2014 find active buses on the machine",
       "description": "Add adhd_discover tool to scan the filesystem for active bus.jsonl files. Return bus metadata: slug, message count, last activity, active agents.",
       "kanban_status": "done",
-      "priority": {"level": 3, "rpe_weight": 0.5, "value_score": 50},
+      "priority": {
+        "level": 3,
+        "rpe_weight": 0.5,
+        "value_score": 50
+      },
       "done": true,
       "dependencies": []
     },
     {
       "id": "adhd-24",
-      "subject": "Cross-bus bridging — forward messages between buses",
+      "subject": "Cross-bus bridging \u2014 forward messages between buses",
       "description": "Enable message forwarding between independent buses. Bridge rules define which message types/topics cross bus boundaries. Add adhd_bridge_register tool.",
       "kanban_status": "done",
-      "priority": {"level": 3, "rpe_weight": 0.6, "value_score": 55},
+      "priority": {
+        "level": 3,
+        "rpe_weight": 0.6,
+        "value_score": 55
+      },
       "done": true,
-      "dependencies": ["adhd-17", "adhd-23"]
+      "dependencies": [
+        "adhd-17",
+        "adhd-23"
+      ]
     },
     {
       "id": "adhd-25",
-      "subject": "Namespace routing — route messages by project namespace",
+      "subject": "Namespace routing \u2014 route messages by project namespace",
       "description": "Route messages between buses based on project namespaces. Agents can address messages to agent@namespace. Add namespace resolution and routing table to bus metadata.",
       "kanban_status": "backlog",
-      "priority": {"level": 3, "rpe_weight": 0.5, "value_score": 45},
+      "priority": {
+        "level": 3,
+        "rpe_weight": 0.5,
+        "value_score": 45
+      },
       "done": false,
-      "dependencies": ["adhd-24"]
+      "dependencies": [
+        "adhd-24"
+      ]
     }
   ]
 }

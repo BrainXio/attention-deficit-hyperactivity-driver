@@ -72,6 +72,14 @@ def get_rules() -> dict[str, object]:
                 "description": "Self-describing bus protocol (this tool)",
                 "tool": "adhd_get_rules",
             },
+            "lamport": {
+                "description": "Lamport logical clocks for partial causal ordering",
+                "tools": [
+                    "adhd_get_lamport_time",
+                    "adhd_compare_causality",
+                ],
+                "note": "Messages carry lamport_clock; C = max(C, C_msg) + 1 on receive",
+            },
         },
         "message_types": [
             {"type": "signin", "topic": "agent-lifecycle", "description": "Session started"},
@@ -148,6 +156,14 @@ def get_rules() -> dict[str, object]:
             {"tool": "adhd_human_split_duties", "purpose": "Human splits supporter duties"},
             {"tool": "adhd_gen_key", "purpose": "Generate Ed25519 keypair for an agent"},
             {"tool": "adhd_get_rules", "purpose": "Return these protocol rules"},
+            {
+                "tool": "adhd_get_lamport_time",
+                "purpose": "Get current Lamport logical clock value",
+            },
+            {
+                "tool": "adhd_compare_causality",
+                "purpose": "Check happens-before relation between two messages",
+            },
             {"tool": "adhd_issue_token", "purpose": "Issue a signed capability token"},
             {"tool": "adhd_verify_agent", "purpose": "Verify an agent's cryptographic identity"},
             {"tool": "adhd_verify_token", "purpose": "Verify a signed capability token"},

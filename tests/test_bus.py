@@ -29,10 +29,13 @@ def _sample_message() -> dict[str, Any]:
 
 @pytest.fixture
 def temp_bus(tmp_path: Path) -> Path:
-    """Provide a temporary bus file and patch resolve() to use it."""
+    """Provide a temporary bus file, reset Lamport clock, and patch resolve()."""
     bus_file = tmp_path / "bus.jsonl"
+    bus_file.write_text("")  # ensure the file exists
+    bus._lamport_clock = 0
     with patch.object(bus, "resolve", return_value=bus_file):
         yield bus_file
+    bus._lamport_clock = 0
 
 
 # ---------------------------------------------------------------------------
@@ -581,6 +584,8 @@ def test_validate_invalid_type() -> None:
 
 
 def test_validate_bus_empty(temp_bus: Path) -> None:
+    # Remove the pre-created file to test the "does not exist" path
+    temp_bus.unlink()
     ok, msg = bus.validate_bus()
     assert ok is True
     assert "does not exist" in msg
@@ -1207,6 +1212,175 @@ def test_write_message_roundtrip(temp_bus: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Lamport logical clocks
+# ---------------------------------------------------------------------------
+
+
+def test_lamport_starts_at_zero(temp_bus: Path) -> None:
+    """get_lamport_time returns 0 before any messages are written."""
+    assert bus.get_lamport_time() == 0
+
+
+def test_lamport_ticks_on_write(temp_bus: Path) -> None:
+    """Each write_message increments the Lamport clock."""
+    assert bus.get_lamport_time() == 0
+    bus.write_message(_sample_message())
+    assert bus.get_lamport_time() == 1
+    bus.write_message(_sample_message())
+    assert bus.get_lamport_time() == 2
+    bus.write_message(_sample_message())
+    assert bus.get_lamport_time() == 3
+
+
+def test_write_message_stamps_lamport(temp_bus: Path) -> None:
+    """Messages written to the bus carry a monotonically increasing lamport_clock."""
+    bus.write_message(_sample_message())
+    bus.write_message(_sample_message())
+    bus.write_message(_sample_message())
+
+    messages = [json.loads(line) for line in temp_bus.read_text().splitlines() if line.strip()]
+    assert len(messages) == 3
+    assert messages[0]["lamport_clock"] == 1
+    assert messages[1]["lamport_clock"] == 2
+    assert messages[2]["lamport_clock"] == 3
+
+
+def test_read_messages_updates_lamport(temp_bus: Path) -> None:
+    """Reading messages updates the local Lamport clock per Lamport receive rule."""
+    # Pre-populate the bus with messages at specific clocks
+    for i in range(1, 6):
+        msg = _sample_message()
+        msg["lamport_clock"] = i * 10
+        temp_bus.write_text(
+            temp_bus.read_text() + json.dumps(msg, separators=(",", ":")) + "\n",
+        )
+
+    assert bus.get_lamport_time() == 0
+    bus.read_messages(limit=50)
+    assert bus.get_lamport_time() == 51  # max(0, 50) + 1
+
+
+def test_read_messages_empty_bus_does_not_tick(temp_bus: Path) -> None:
+    """Reading an empty bus does not change the Lamport clock."""
+    assert bus.get_lamport_time() == 0
+    bus.read_messages(limit=50)
+    assert bus.get_lamport_time() == 0
+
+
+def test_read_messages_only_applied_to_returned(temp_bus: Path) -> None:
+    """Lamport clock updates only from the messages actually returned (after limit)."""
+    for i in range(1, 6):
+        msg = _sample_message()
+        msg["lamport_clock"] = i
+        temp_bus.write_text(
+            temp_bus.read_text() + json.dumps(msg, separators=(",", ":")) + "\n",
+        )
+
+    # Read only last 2 messages (clocks 4 and 5)
+    result = bus.read_messages(limit=2)
+    assert len(result) == 2
+    # max(0, 4, 5) + 1 = 6
+    assert bus.get_lamport_time() == 6
+
+
+def test_update_lamport_ignores_zero_clock(temp_bus: Path) -> None:
+    """Messages with lamport_clock=0 do not advance the local clock."""
+    bus._update_lamport_from_messages(
+        [{"lamport_clock": 0}, {"lamport_clock": 0, "type": "heartbeat"}],
+    )
+    assert bus.get_lamport_time() == 0
+
+
+def test_update_lamport_ignores_missing_clock(temp_bus: Path) -> None:
+    """Messages without a lamport_clock field do not advance the clock."""
+    bus._update_lamport_from_messages(
+        [_sample_message(), {"timestamp": "now", "type": "event"}],
+    )
+    assert bus.get_lamport_time() == 0
+
+
+def test_happens_before_lower_clock(temp_bus: Path) -> None:
+    """A message with a lower clock potentially happened before one with a higher clock."""
+    msg_a = {"lamport_clock": 5, "agent_id": "agent-x", "type": "status"}
+    msg_b = {"lamport_clock": 10, "agent_id": "agent-y", "type": "event"}
+    assert bus.happens_before(msg_a, msg_b) is True
+
+
+def test_happens_before_higher_clock(temp_bus: Path) -> None:
+    """A message with a higher clock did NOT happen before one with a lower clock."""
+    msg_a = {"lamport_clock": 10, "agent_id": "agent-x"}
+    msg_b = {"lamport_clock": 5, "agent_id": "agent-y"}
+    assert bus.happens_before(msg_a, msg_b) is False
+
+
+def test_happens_before_equal_clock_different_agents(temp_bus: Path) -> None:
+    """Equal clocks from different agents mean concurrent (neither happened before)."""
+    msg_a = {"lamport_clock": 7, "agent_id": "agent-x"}
+    msg_b = {"lamport_clock": 7, "agent_id": "agent-y"}
+    assert bus.happens_before(msg_a, msg_b) is False
+    assert bus.happens_before(msg_b, msg_a) is False
+
+
+def test_happens_before_equal_clock_same_agent(temp_bus: Path) -> None:
+    """Equal clocks from the same agent should not happen-before either."""
+    msg_a = {"lamport_clock": 7, "agent_id": "agent-same"}
+    msg_b = {"lamport_clock": 7, "agent_id": "agent-same"}
+    assert bus.happens_before(msg_a, msg_b) is False
+
+
+def test_happens_before_same_agent_lower_clock(temp_bus: Path) -> None:
+    """Same agent with lower clock definitively happened before."""
+    msg_a = {"lamport_clock": 3, "agent_id": "agent-x"}
+    msg_b = {"lamport_clock": 8, "agent_id": "agent-x"}
+    assert bus.happens_before(msg_a, msg_b) is True
+
+
+def test_happens_before_both_zero_clocks(temp_bus: Path) -> None:
+    """When both clocks are 0 (pre-Lamport messages), neither happened before."""
+    msg_a = {"agent_id": "agent-x"}
+    msg_b = {"agent_id": "agent-y"}
+    assert bus.happens_before(msg_a, msg_b) is False
+
+
+def test_happens_before_one_zero_clock(temp_bus: Path) -> None:
+    """A message with clock=0 might have happened before a clocked message."""
+    msg_a = {"agent_id": "agent-old"}
+    msg_b = {"lamport_clock": 5, "agent_id": "agent-new"}
+    assert bus.happens_before(msg_a, msg_b) is True
+
+
+def test_read_messages_since_updates_lamport(temp_bus: Path) -> None:
+    """read_messages_since also updates the Lamport clock."""
+    for i in range(1, 4):
+        msg = _sample_message()
+        msg["lamport_clock"] = i * 5
+        temp_bus.write_text(
+            temp_bus.read_text() + json.dumps(msg, separators=(",", ":")) + "\n",
+        )
+
+    result, pos = bus.read_messages_since(0)
+    assert len(result) == 3
+    assert bus.get_lamport_time() == 16  # max(0, 5, 10, 15) + 1
+
+
+def test_lamport_persists_across_read_and_write(temp_bus: Path) -> None:
+    """Clock advances correctly across a full read-then-write cycle."""
+    # Simulate receiving messages from other agents
+    for i in range(1, 4):
+        msg = _sample_message()
+        msg["lamport_clock"] = i * 2
+        temp_bus.write_text(
+            temp_bus.read_text() + json.dumps(msg, separators=(",", ":")) + "\n",
+        )
+
+    bus.read_messages(limit=50)
+    clock_after_read = bus.get_lamport_time()
+    assert clock_after_read == 7  # max(0, 2,4,6) + 1
+
+    bus.write_message(_sample_message())
+    assert bus.get_lamport_time() == 8  # ticked on send
+
+
 # Bus snapshots
 # ---------------------------------------------------------------------------
 
