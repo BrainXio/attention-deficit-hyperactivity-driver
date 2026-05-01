@@ -10,7 +10,6 @@ __pycache__/
 *.pem
 
 # AI agent artifacts
-CLAUDE.md
 PLAN.md
 .claude/
 .cursorrules
