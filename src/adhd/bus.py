@@ -117,6 +117,7 @@ def read_messages(
     type_filter: str | None = None,
     topic_filter: str | None = None,
     agent_filter: str | None = None,
+    recipient_filter: str | None = None,
 ) -> list[dict[str, Any]]:
     """Read recent messages from the bus with optional filtering."""
     bus_path = resolve()
@@ -140,6 +141,17 @@ def read_messages(
                 continue
             if agent_filter and msg.get("agent_id") != agent_filter:
                 continue
+            if recipient_filter is not None:
+                payload = msg.get("payload", {})
+                if isinstance(payload, dict):
+                    rcpt = payload.get("recipient")
+                    if recipient_filter == "all":
+                        if rcpt != "all":
+                            continue
+                    elif rcpt != recipient_filter:
+                        continue
+                else:
+                    continue
             messages.append(msg)
 
     return messages[-limit:]

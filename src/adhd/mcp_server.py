@@ -85,6 +85,7 @@ async def adhd_read(
     type: str | None = None,
     topic: str | None = None,
     agent: str | None = None,
+    recipient: str | None = None,
 ) -> str:
     """Read recent messages from the ADHD bus.
 
@@ -93,12 +94,14 @@ async def adhd_read(
         type: Filter by message type (signin, signout, heartbeat, status, etc.)
         topic: Filter by topic (agent-lifecycle, coordination, agent-activity, etc.)
         agent: Filter by agent ID
+        recipient: Filter by payload.recipient field (use "all" for broadcasts)
     """
     messages = read_messages(
         limit=limit,
         type_filter=type,
         topic_filter=topic,
         agent_filter=agent,
+        recipient_filter=recipient,
     )
     return json.dumps(messages, indent=2)
 
