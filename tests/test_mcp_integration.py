@@ -20,6 +20,7 @@ from adhd.mcp_server import (
     adhd_mcp_change_prepare,
     adhd_mcp_change_ready,
     adhd_migrate_to_push,
+    adhd_noise_check,
     adhd_poll,
     adhd_post,
     adhd_read,
@@ -273,6 +274,29 @@ async def test_adhd_get_rules() -> None:
     assert "env_vars" in data
     assert "tools" in data
     assert data["protocols"]["heartbeat"]["interval_minutes"] == 10
+
+
+# ---------------------------------------------------------------------------
+# Noise threshold monitoring
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_adhd_noise_check_empty_bus(temp_bus: Path) -> None:
+    result = await adhd_noise_check()
+    data = json.loads(result)
+    assert "metrics" in data
+    assert data["metrics"]["total_messages"] == 0
+    assert data["metrics"]["warning_active"] is False
+
+
+@pytest.mark.asyncio
+async def test_adhd_noise_check_with_messages(temp_bus: Path) -> None:
+    await adhd_signin()
+    result = await adhd_noise_check()
+    data = json.loads(result)
+    assert data["metrics"]["total_messages"] >= 1
+    assert "status" in data
 
 
 # ---------------------------------------------------------------------------

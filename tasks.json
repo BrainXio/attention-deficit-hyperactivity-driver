@@ -24,42 +24,10 @@
     "adhd-1/2: ADHD_PERF_LEVEL env var in heartbeat payload, detect-perf-level.py hardware probe script — PR #17",
     "adhd-4: Stale heartbeat reaper (reap_stale_heartbeats, 15-min threshold) — PR #18",
     "adhd-5: Document supporter model, merge-queue protocol, HITL, notifications, perf detection, reaper — PR #19",
-    "adhd-14: Recipient filter on adhd_read (exact match + 'all' wildcard) — PR #20"
+    "adhd-14: Recipient filter on adhd_read (exact match + 'all' wildcard) — PR #20",
+    "adhd-16: Push/event-driven delivery — subscribe, unsubscribe, poll, wait, migrate_to_push — PR #24",
+    "adhd-15: Agent-noise-threshold monitoring — get_noise_metrics, check_noise_threshold, adhd_noise_check tool, density warnings on bus"
   ],
   "in_progress": [],
-  "pending": [
-    {
-      "id": "adhd-15",
-      "priority": 2,
-      "subject": "Add agent-noise-threshold monitoring for bus density warnings",
-      "description": "When the bus exceeds a configurable message rate (e.g. 50 messages/minute) or active agent count, post a density warning to help agents self-regulate. Prevents bus spam and helps detect runaway agent loops.",
-      "files": ["src/adhd/bus.py", "src/adhd/mcp_server.py", "tests/test_bus.py"],
-      "acceptance": [
-        "Configurable threshold for message rate (ADHD_NOISE_THRESHOLD env var)",
-        "Configurable threshold for active agent count",
-        "Warning messages posted to bus when thresholds exceeded",
-        "Tool adhd_noise_check returns current density metrics",
-        "Tests cover threshold exceeded, normal, and edge cases"
-      ],
-      "dependencies": []
-    },
-    {
-      "id": "adhd-16",
-      "priority": 1,
-      "subject": "Implement push/event-driven delivery so agents don't need to poll",
-      "description": "Currently agents must poll the bus via adhd_read to discover messages. Add an event-driven mechanism so agents can subscribe to message types, topics, or recipient filters and get notified (via MCP notifications, inotify file watches, or a subscription registry on the bus) when matching messages arrive. This eliminates polling latency and reduces bus read volume.",
-      "files": ["src/adhd/bus.py", "src/adhd/mcp_server.py", "src/adhd/models.py", "tests/test_bus.py"],
-      "acceptance": [
-        "Agents can subscribe to specific message types, topics, or recipient filters",
-        "Subscription stored on the bus as a subscription message",
-        "New messages matching active subscriptions trigger a notification mechanism",
-        "adhd_subscribe and adhd_unsubscribe MCP tools",
-        "Graceful fallback: agents without push support can still poll",
-        "Tests cover subscribe, unsubscribe, match notification, and no-match silence",
-        "MIGRATION: On deploy, broadcast a migration message repeatedly via adhd_post until all active agents acknowledge they switched to push and ditched polling monitors",
-        "adhd_migrate_to_push tool that handles the repeated broadcast + acknowledgement tracking"
-      ],
-      "dependencies": []
-    }
-  ]
+  "pending": []
 }
