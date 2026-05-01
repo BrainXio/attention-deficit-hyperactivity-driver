@@ -13,6 +13,17 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
+)
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+    load_pem_private_key,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -491,6 +502,7 @@ def validate(line: str) -> tuple[bool, str]:
         "unsubscription",
         "migration_announce",
         "migration_ack",
+        "bridge_rule",
     }
     if obj["type"] not in valid_types:
         return False, f"Invalid type: {obj['type']}"
@@ -625,28 +637,277 @@ def reap_stale_heartbeats() -> list[dict[str, str]]:
 
 
 # ---------------------------------------------------------------------------
+# Agent identity — Ed25519 keypairs
+# ---------------------------------------------------------------------------
+
+
+def _get_key_dir() -> Path:
+    """Return the key storage directory, creating it if needed."""
+    base = Path(os.environ.get("ADHD_BUS_PATH", "~/.brainxio/adhd")).expanduser()
+    key_dir = base / "keys"
+    key_dir.mkdir(parents=True, exist_ok=True)
+    return key_dir
+
+
+def _key_path(agent_id: str, suffix: str = ".pem") -> Path:
+    """Return the full path to an agent's key file."""
+    return _get_key_dir() / f"{agent_id}{suffix}"
+
+
+def generate_keypair(agent_id: str) -> str:
+    """Generate an Ed25519 keypair for *agent_id* and persist to disk.
+
+    Private key: PEM-encoded PKCS8 at ``{key_dir}/{agent_id}.pem``.
+    Public  key: raw hex bytes at ``{key_dir}/{agent_id}.pub``.
+
+    Returns the public-key hex.
+    """
+    private_key = Ed25519PrivateKey.generate()
+    public_key = private_key.public_key()
+
+    pem_private = private_key.private_bytes(
+        encoding=Encoding.PEM,
+        format=PrivateFormat.PKCS8,
+        encryption_algorithm=NoEncryption(),
+    )
+    _key_path(agent_id, ".pem").write_bytes(pem_private)
+
+    pub_hex = public_key.public_bytes_raw().hex()
+    _key_path(agent_id, ".pub").write_text(pub_hex + "\n")
+    return pub_hex
+
+
+def load_private_key(agent_id: str) -> Ed25519PrivateKey | None:
+    """Load the agent's Ed25519 private key, or *None* if missing."""
+    path = _key_path(agent_id, ".pem")
+    if not path.exists():
+        return None
+    try:
+        key = load_pem_private_key(path.read_bytes(), password=None)
+        return key if isinstance(key, Ed25519PrivateKey) else None
+    except Exception:
+        return None
+
+
+def load_public_key(agent_id: str) -> Ed25519PublicKey | None:
+    """Load an agent's Ed25519 public key, or *None* if missing."""
+    path = _key_path(agent_id, ".pub")
+    if not path.exists():
+        return None
+    try:
+        pub_hex = path.read_text().strip()
+        return Ed25519PublicKey.from_public_bytes(bytes.fromhex(pub_hex))
+    except Exception:
+        return None
+
+
+def sign_challenge(agent_id: str, challenge: str) -> str | None:
+    """Sign *challenge* with the agent's private key.
+
+    Returns hex-encoded signature or *None* when no key exists.
+    """
+    private_key = load_private_key(agent_id)
+    if private_key is None:
+        return None
+    return private_key.sign(challenge.encode()).hex()
+
+
+def verify_agent(agent_id: str, challenge: str, signature: str) -> bool:
+    """Verify *signature* of *challenge* against the agent's public key.
+
+    Returns *True* when the signature is valid.  Returns *False* when the
+    public key is missing or verification fails (impersonation / tampering).
+    """
+    public_key = load_public_key(agent_id)
+    if public_key is None:
+        return False
+    try:
+        public_key.verify(bytes.fromhex(signature), challenge.encode())
+        return True
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Capability tokens — signed authorization claims
+# ---------------------------------------------------------------------------
+
+
+def _generate_token_id() -> str:
+    """Generate a short unique token identifier."""
+    import secrets
+
+    return "tok_" + secrets.token_hex(4)
+
+
+def issue_token(
+    issuer_id: str,
+    subject: str,
+    *,
+    allowed_tools: list[str] | None = None,
+    scopes: list[str] | None = None,
+    expiry_hours: int = 24,
+) -> str | None:
+    """Issue a signed capability token for *subject* signed by *issuer_id*.
+
+    The token is a dot-separated string: ``base64(payload).signature_hex``
+    where the payload is a JSON object with subject, issuer, timestamps,
+    allowed_tools, scopes, and token_id.  The signature is the issuer's
+    Ed25519 signature over the payload JSON.
+
+    Returns the encoded token string, or ``None`` if the issuer's private
+    key is missing.
+    """
+    import base64
+
+    private_key = load_private_key(issuer_id)
+    if private_key is None:
+        return None
+
+    payload: dict[str, Any] = {
+        "subject": subject,
+        "issuer": issuer_id,
+        "issued_at": now(),
+        "expires_at": (datetime.now(UTC) + timedelta(hours=expiry_hours)).isoformat(),
+        "allowed_tools": allowed_tools or [],
+        "scopes": scopes or [],
+        "token_id": _generate_token_id(),
+    }
+    payload_json = json.dumps(payload, separators=(",", ":"))
+    payload_b64 = base64.urlsafe_b64encode(payload_json.encode()).decode().rstrip("=")
+    signature = private_key.sign(payload_json.encode()).hex()
+    return f"{payload_b64}.{signature}"
+
+
+def verify_token(
+    token_str: str,
+    *,
+    required_tool: str | None = None,
+    required_scope: str | None = None,
+    caller_id: str | None = None,
+) -> dict[str, object]:
+    """Verify a signed capability token.
+
+    Checks:
+    1. Token format (two dot-separated parts)
+    2. Payload is valid JSON with required fields
+    3. Signature is valid against the issuer's Ed25519 public key
+    4. Token has not expired
+    5. ``caller_id`` matches ``subject`` (when provided)
+    6. ``required_tool`` is in ``allowed_tools`` (when provided)
+    7. ``required_scope`` is in ``scopes`` (when provided)
+
+    Returns ``{"ok": True}`` or ``{"ok": False, "detail": "..."}``.
+    """
+    import base64
+
+    parts = token_str.split(".", 1)
+    if len(parts) != 2:
+        return {"ok": False, "detail": "Invalid token format"}
+
+    payload_b64, signature_hex = parts
+
+    try:
+        payload_bytes = base64.urlsafe_b64decode(payload_b64 + "==")
+        payload = json.loads(payload_bytes)
+    except Exception:
+        return {"ok": False, "detail": "Invalid token payload encoding"}
+
+    if not isinstance(payload, dict):
+        return {"ok": False, "detail": "Token payload must be a JSON object"}
+
+    for field in ("subject", "issuer", "expires_at", "token_id"):
+        if field not in payload:
+            return {"ok": False, "detail": f"Token missing required field: {field}"}
+
+    issuer_id = payload["issuer"]
+    public_key = load_public_key(issuer_id)
+    if public_key is None:
+        return {
+            "ok": False,
+            "detail": f"Issuer '{issuer_id}' has no public key",
+        }
+
+    payload_json = json.dumps(payload, separators=(",", ":"))
+    try:
+        public_key.verify(bytes.fromhex(signature_hex), payload_json.encode())
+    except Exception:
+        return {"ok": False, "detail": "Token signature invalid"}
+
+    expires_at_str = payload["expires_at"]
+    try:
+        expires_at = datetime.fromisoformat(expires_at_str)
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        if datetime.now(UTC) > expires_at:
+            return {"ok": False, "detail": "Token has expired"}
+    except (ValueError, TypeError):
+        return {"ok": False, "detail": "Token has invalid expires_at"}
+
+    if caller_id is not None and payload["subject"] != caller_id:
+        return {
+            "ok": False,
+            "detail": f"Token subject '{payload['subject']}' does not match caller '{caller_id}'",
+        }
+
+    if required_tool is not None:
+        allowed = payload.get("allowed_tools", [])
+        if required_tool not in allowed:
+            return {
+                "ok": False,
+                "detail": f"Token does not allow tool '{required_tool}'",
+            }
+
+    if required_scope is not None:
+        scopes = payload.get("scopes", [])
+        if required_scope not in scopes:
+            return {
+                "ok": False,
+                "detail": f"Token missing required scope '{required_scope}'",
+            }
+
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
 # High-level helpers (signin, signout, heartbeat, post, send)
 # ---------------------------------------------------------------------------
 
 
 def signin() -> str:
-    """Write a signin message."""
+    """Write a signin message with optional identity proof.
+
+    When the agent has an Ed25519 keypair, the signin includes a
+    cryptographic proof of identity (public_key, challenge, signature).
+    """
     payload: dict[str, Any] = {}
     if os.environ.get("ADHD_ENABLE_SUPPORTER"):
         payload["supporter"] = True
         payload["perf_level"] = get_perf_level()
 
+    agent = agent_id()
+    challenge = f"{session_id()}:{now()}"
+    sig = sign_challenge(agent, challenge)
+    if sig is not None:
+        pub_key = load_public_key(agent)
+        if pub_key is not None:
+            payload["public_key"] = pub_key.public_bytes_raw().hex()
+            payload["signature"] = sig
+            payload["challenge"] = challenge
+
     write_message(
         {
             "timestamp": now(),
             "session_id": session_id(),
-            "agent_id": agent_id(),
+            "agent_id": agent,
             "branch": current_branch(),
             "type": "signin",
             "topic": "agent-lifecycle",
             "payload": payload,
         }
     )
+    if sig is not None:
+        return "Signed in (identity verified)."
     if payload.get("supporter"):
         return "Signed in as supporter."
     return "Signed in."
@@ -1181,3 +1442,270 @@ def archive() -> str:
         )
 
     return f"Bus has {line_count} lines ({pct}% capacity). No archive needed."
+
+
+# ---------------------------------------------------------------------------
+# Bus snapshots
+# ---------------------------------------------------------------------------
+
+
+def create_snapshot() -> dict[str, Any]:
+    """Create a full-state checkpoint of the bus for recovery and replay.
+
+    Returns message count, timestamp range, registered/active agents,
+    subscription state, and bus file path. Does not write to the bus.
+    """
+    bus_path = resolve()
+    if not bus_path.exists():
+        return {
+            "snapshot_at": now(),
+            "message_count": 0,
+            "file_size_bytes": 0,
+            "timestamp_range": {"first": None, "last": None},
+            "registered_agents": [],
+            "active_agents": [],
+            "subscriptions": {},
+            "bus_path": str(bus_path),
+        }
+
+    messages = read_messages(limit=10000)
+    first_ts = messages[0]["timestamp"] if messages else None
+    last_ts = messages[-1]["timestamp"] if messages else None
+
+    agents: set[str] = set()
+    for msg in messages:
+        a = msg.get("agent_id")
+        if isinstance(a, str):
+            agents.add(a)
+
+    supporters = check_supporters()
+    active_agent_ids = [s["agent_id"] for s in supporters]
+
+    return {
+        "snapshot_at": now(),
+        "message_count": len(messages),
+        "file_size_bytes": bus_path.stat().st_size,
+        "timestamp_range": {"first": first_ts, "last": last_ts},
+        "registered_agents": sorted(agents),
+        "active_agents": sorted(active_agent_ids),
+        "subscriptions": get_subscriptions(),
+        "bus_path": str(bus_path),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Bus discovery
+# ---------------------------------------------------------------------------
+
+
+def discover_buses() -> list[dict[str, Any]]:
+    """Scan the ADHD storage directory for active bus files.
+
+    Returns metadata for each discovered bus: slug, message count,
+    last activity timestamp, and active agent count.
+    """
+    base_dir = Path(os.environ.get("ADHD_BUS_PATH", "~/.brainxio/adhd")).expanduser()
+    if not base_dir.exists():
+        return []
+
+    results: list[dict[str, Any]] = []
+    for channel_dir in sorted(base_dir.iterdir()):
+        if not channel_dir.is_dir():
+            continue
+        bus_file = channel_dir / "bus.jsonl"
+        if not bus_file.exists():
+            continue
+
+        try:
+            bus_stat = bus_file.stat()
+            size = bus_stat.st_size
+            mtime = datetime.fromtimestamp(bus_stat.st_mtime, tz=UTC).isoformat()
+        except OSError:
+            continue
+
+        slug = channel_dir.name
+        line_count = 0
+        last_activity = None
+        agents_seen: set[str] = set()
+
+        try:
+            with bus_file.open("r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    line_count += 1
+                    try:
+                        msg = json.loads(line)
+                        ts = msg.get("timestamp")
+                        if isinstance(ts, str):
+                            last_activity = ts
+                        a = msg.get("agent_id")
+                        if isinstance(a, str):
+                            agents_seen.add(a)
+                    except json.JSONDecodeError:
+                        pass
+        except OSError:
+            continue
+
+        results.append(
+            {
+                "slug": slug,
+                "message_count": line_count,
+                "last_activity": last_activity or mtime,
+                "file_size_bytes": size,
+                "agents_seen": sorted(agents_seen),
+                "agent_count": len(agents_seen),
+                "bus_path": str(bus_file),
+            }
+        )
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Cross-bus bridging
+# ---------------------------------------------------------------------------
+
+BRIDGE_RULE_TYPE = "bridge_rule"
+BRIDGE_TOPIC = "bridge-rules"
+
+
+def resolve_bus_path(slug: str) -> Path:
+    """Return the path to a bus file by its slug name."""
+    base_dir = Path(os.environ.get("ADHD_BUS_PATH", "~/.brainxio/adhd")).expanduser()
+    bus_dir = base_dir / slug
+    bus_dir.mkdir(parents=True, exist_ok=True)
+    return bus_dir / "bus.jsonl"
+
+
+def register_bridge(
+    target_slug: str,
+    type_filter: str | None = None,
+    topic_filter: str | None = None,
+) -> str:
+    """Register a bridge rule that forwards matching messages to a target bus."""
+    filters: dict[str, str] = {}
+    if type_filter:
+        filters["type"] = type_filter
+    if topic_filter:
+        filters["topic"] = topic_filter
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": BRIDGE_RULE_TYPE,
+            "topic": BRIDGE_TOPIC,
+            "payload": {
+                "action": "register",
+                "target_slug": target_slug,
+                "filters": filters,
+            },
+        }
+    )
+    return f"Bridge registered to '{target_slug}' with filters {filters or 'all'}."
+
+
+def unregister_bridge(target_slug: str) -> str:
+    """Remove a bridge rule for a target bus."""
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": BRIDGE_RULE_TYPE,
+            "topic": BRIDGE_TOPIC,
+            "payload": {
+                "action": "unregister",
+                "target_slug": target_slug,
+            },
+        }
+    )
+    return f"Bridge to '{target_slug}' removed."
+
+
+def get_bridge_rules() -> list[dict[str, Any]]:
+    """Return active bridge rules."""
+    messages = read_messages(topic_filter=BRIDGE_TOPIC, limit=500)
+    rules: dict[str, dict[str, Any]] = {}
+    for msg in messages:
+        payload = msg.get("payload", {})
+        if not isinstance(payload, dict):
+            continue
+        target = payload.get("target_slug")
+        if not isinstance(target, str):
+            continue
+        action = payload.get("action")
+        if action == "register":
+            filters = payload.get("filters", {})
+            rules[target] = {
+                "source_slug": _bus_slug(),
+                "target_slug": target,
+                "filters": filters if isinstance(filters, dict) else {},
+                "registered_by": msg.get("agent_id", ""),
+                "registered_at": msg.get("timestamp", ""),
+            }
+        elif action == "unregister":
+            rules.pop(target, None)
+    return list(rules.values())
+
+
+def _bus_slug() -> str:
+    """Return the slug name for the current bus (without resolving the full path)."""
+    bus_name = os.environ.get("ADHD_BUS_SLUG")
+    if bus_name:
+        return bus_name
+    try:
+        superproject = subprocess.run(
+            ["git", "rev-parse", "--show-superproject-working-tree"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        if superproject:
+            return Path(superproject).name
+        toplevel = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        return Path(toplevel).name
+    except subprocess.CalledProcessError:
+        return "default"
+
+
+def forward_message(msg: dict[str, Any], target_slug: str) -> None:
+    """Forward a message to another bus, re-signing it for the target."""
+    forwarded = {k: v for k, v in msg.items() if k not in ("hmac", "bridged_from")}
+    forwarded["bridged_from"] = _bus_slug()
+    forwarded["timestamp"] = now()
+    target_path = resolve_bus_path(target_slug)
+    forwarded = sign_message(forwarded)
+    with target_path.open("a") as f:
+        f.write(json.dumps(forwarded, separators=(",", ":")) + "\n")
+
+
+def get_bridge_targets(msg: dict[str, Any]) -> list[str]:
+    """Return target slugs whose bridge rules match the given message."""
+    bridged_from = msg.get("bridged_from", "")
+    msg_type = msg.get("type", "")
+    msg_topic = msg.get("topic", "")
+    targets: list[str] = []
+    for rule in get_bridge_rules():
+        if rule["target_slug"] == bridged_from:
+            continue
+        filters = rule.get("filters", {})
+        if not filters:
+            if msg_type != BRIDGE_RULE_TYPE:
+                targets.append(rule["target_slug"])
+            continue
+        if "type" in filters and filters["type"] != msg_type:
+            continue
+        if "topic" in filters and filters["topic"] != msg_topic:
+            continue
+        targets.append(rule["target_slug"])
+    return targets

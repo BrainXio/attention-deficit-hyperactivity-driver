@@ -154,8 +154,9 @@ def get_rules() -> dict[str, object]:
             {"tool": "adhd_human_provide_rpe", "purpose": "Human provides RPE feedback"},
             {"tool": "adhd_human_approve_gonogo", "purpose": "Approve/reject Go/NoGo action"},
             {"tool": "adhd_human_split_duties", "purpose": "Human splits supporter duties"},
+            {"tool": "adhd_gen_key", "purpose": "Generate Ed25519 keypair for an agent"},
             {"tool": "adhd_get_rules", "purpose": "Return these protocol rules"},
-            {
+{
                 "tool": "adhd_get_lamport_time",
                 "purpose": "Get current Lamport logical clock value",
             },
@@ -163,5 +164,8 @@ def get_rules() -> dict[str, object]:
                 "tool": "adhd_compare_causality",
                 "purpose": "Check happens-before relation between two messages",
             },
+            {"tool": "adhd_issue_token", "purpose": "Issue a signed capability token"},
+            {"tool": "adhd_verify_agent", "purpose": "Verify an agent's cryptographic identity"},
+            {"tool": "adhd_verify_token", "purpose": "Verify a signed capability token"},
         ],
     }

@@ -18,7 +18,13 @@ from adhd.bus import (
     check_mcp_change_status,
     check_noise_threshold,
     check_supporters,
+    create_snapshot,
     current_branch,
+    discover_buses,
+    forward_message,
+    generate_keypair,
+    get_bridge_rules,
+    get_bridge_targets,
     get_decision_history,
     get_file_size,
     get_lamport_time,
@@ -32,20 +38,25 @@ from adhd.bus import (
     hitl_provide_rpe,
     hitl_release_decision,
     hitl_split_duties,
+    issue_token,
     mark_mcp_change_ready,
     now,
     prepare_mcp_change,
     read_messages,
     read_messages_since,
     reap_stale_heartbeats,
+    register_bridge,
     resolve,
     session_id,
     signin,
     signout,
     subscribe,
+    unregister_bridge,
     unsubscribe,
     validate_bus,
+    verify_agent,
     verify_signature,
+    verify_token,
     write_message,
 )
 from adhd.bus import (
@@ -82,8 +93,15 @@ async def adhd_signin() -> str:
 
 
 @mcp.tool()
-async def adhd_signout() -> str:
-    """Sign out from the ADHD coordination bus. Call once before your session ends."""
+async def adhd_signout(token: str = "") -> str:
+    """Sign out from the ADHD coordination bus. Call once before your session ends.
+
+    Args:
+        token: Optional capability token for access control
+    """
+    err = _check_access(token, "write", "adhd_signout")
+    if err:
+        return err
     return signout()
 
 
@@ -99,6 +117,7 @@ async def adhd_read(
     topic: str | None = None,
     agent: str | None = None,
     recipient: str | None = None,
+    token: str = "",
 ) -> str:
     """Read recent messages from the ADHD bus.
 
@@ -108,7 +127,11 @@ async def adhd_read(
         topic: Filter by topic (agent-lifecycle, coordination, agent-activity, etc.)
         agent: Filter by agent ID
         recipient: Filter by payload.recipient field (use "all" for broadcasts)
+        token: Optional capability token for access control
     """
+    err = _check_access(token, "read", "adhd_read")
+    if err:
+        return err
     messages = read_messages(
         limit=limit,
         type_filter=type,
@@ -128,21 +151,46 @@ PROTECTED_TYPES = frozenset(
         "unsubscription",
         "migration_announce",
         "migration_ack",
+        "bridge_rule",
     }
 )
 
 PROTECTED_TOPICS = frozenset({"mcp-change"})
 
+ENFORCE_AC = "ADHD_ENFORCE_ACCESS_CONTROL"
+
+
+def _check_access(token: str, required_scope: str, required_tool: str) -> str | None:
+    """Check token-based access. Returns None if allowed, error JSON if denied."""
+    if not token and not os.environ.get(ENFORCE_AC):
+        return None
+    if not token:
+        return json.dumps({"error": "access_denied", "detail": "Token required for access control"})
+    caller = agent_id()
+    result = verify_token(
+        token,
+        required_tool=required_tool,
+        required_scope=required_scope,
+        caller_id=caller,
+    )
+    if not result["ok"]:
+        return json.dumps({"error": "access_denied", "detail": result["detail"]})
+    return None
+
 
 @mcp.tool()
-async def adhd_post(type: str, topic: str, payload: str = "{}") -> str:
+async def adhd_post(type: str, topic: str, payload: str = "{}", token: str = "") -> str:
     """Post a message to the ADHD bus.
 
     Args:
         type: Message type (status, schema, dependency, event, tool_use)
         topic: Message topic (agent-activity, schema, dependency-graph, etc.)
         payload: JSON string for the payload (must be a JSON object)
+        token: Optional capability token for access control
     """
+    err = _check_access(token, "write", "adhd_post")
+    if err:
+        return err
     if type in PROTECTED_TYPES:
         return f"ERROR: Message type '{type}' is protected. Use the dedicated tool instead."
     if topic in PROTECTED_TOPICS:
@@ -153,12 +201,33 @@ async def adhd_post(type: str, topic: str, payload: str = "{}") -> str:
         return f"ERROR: Invalid JSON payload: {exc}"
     if not isinstance(payload_dict, dict):
         return "ERROR: payload must be a JSON object"
-    return bus_post(type_=type, topic=topic, payload=payload_dict)
+    result = bus_post(type_=type, topic=topic, payload=payload_dict)
+
+    msg = {
+        "timestamp": now(),
+        "session_id": session_id(),
+        "agent_id": agent_id(),
+        "branch": current_branch(),
+        "type": type,
+        "topic": topic,
+        "payload": payload_dict,
+    }
+    targets = get_bridge_targets(msg)
+    for target in targets:
+        forward_message(msg, target)
+
+    if targets:
+        result += f" Forwarded to: {', '.join(targets)}."
+    return result
 
 
 @mcp.tool()
 async def adhd_send(
-    to: str, message: str, topic: str = "agent-request", type: str = "request"
+    to: str,
+    message: str,
+    topic: str = "agent-request",
+    type: str = "request",
+    token: str = "",
 ) -> str:
     """Send a request or message to another agent.
 
@@ -167,7 +236,11 @@ async def adhd_send(
         message: Message body
         topic: Message topic (default: agent-request)
         type: Message type: request, question, or event
+        token: Optional capability token for access control
     """
+    err = _check_access(token, "write", "adhd_send")
+    if err:
+        return err
     if type in PROTECTED_TYPES:
         return f"ERROR: Message type '{type}' is protected. Use the dedicated tool instead."
     return bus_send(to=to, message=message, topic=topic, type_=type)
@@ -262,8 +335,15 @@ async def adhd_validate() -> str:
 
 
 @mcp.tool()
-async def adhd_archive() -> str:
-    """Archive old messages when the bus exceeds 10,000 lines, or warn at 80% capacity."""
+async def adhd_archive(token: str = "") -> str:
+    """Archive old messages when the bus exceeds 10,000 lines, or warn at 80% capacity.
+
+    Args:
+        token: Optional capability token for access control
+    """
+    err = _check_access(token, "write", "adhd_archive")
+    if err:
+        return err
     return archive()
 
 
@@ -284,6 +364,28 @@ async def adhd_reap_stale() -> str:
 async def adhd_resolve() -> str:
     """Print the absolute path to the ADHD bus file for the current repo."""
     return str(resolve())
+
+
+@mcp.tool()
+async def adhd_snapshot() -> str:
+    """Create a full-state checkpoint of the bus for recovery and replay.
+
+    Returns message count, timestamp range, registered and active agents,
+    subscription state, and bus file path. Read-only diagnostic tool.
+    """
+    return json.dumps(create_snapshot(), indent=2)
+
+
+@mcp.tool()
+async def adhd_discover() -> str:
+    """Scan for active bus channels on this machine.
+
+    Returns metadata for each discovered bus: slug, message count,
+    last activity timestamp, file size, and agents seen. Agents can
+    call this on startup to find the most populated channel.
+    """
+    buses = discover_buses()
+    return json.dumps(buses, indent=2) if buses else "No bus channels found."
 
 
 @mcp.tool()
@@ -310,6 +412,106 @@ async def adhd_verify_signature(message_json: str) -> str:
     if verify_signature(msg):
         return json.dumps({"ok": True, "detail": "Signature valid"})
     return json.dumps({"ok": False, "detail": "Signature invalid — message may have been tampered"})
+
+
+@mcp.tool()
+async def adhd_gen_key(agent_id: str) -> str:
+    """Generate an Ed25519 keypair for the given agent.
+
+    Persists PEM-encoded private key and raw-hex public key to
+    ``~/.brainxio/adhd/keys/``.  Run once per agent before signin.
+    Returns the public-key hex.
+    """
+    return generate_keypair(agent_id)
+
+
+@mcp.tool()
+async def adhd_verify_agent(agent_id: str, challenge: str, signature: str) -> str:
+    """Verify an agent's cryptographic identity.
+
+    Checks that *signature* is a valid Ed25519 signature of *challenge*
+    for the given *agent_id*'s public key.  Returns ok=True when the
+    identity is confirmed, ok=False when the key is missing or the
+    signature doesn't match (impersonation attempt).
+    """
+    result = verify_agent(agent_id, challenge, signature)
+    return json.dumps(
+        {
+            "ok": result,
+            "detail": (
+                "Identity verified"
+                if result
+                else "Verification failed — key missing or signature invalid"
+            ),
+        }
+    )
+
+
+@mcp.tool()
+async def adhd_issue_token(
+    issuer_id: str,
+    subject: str,
+    allowed_tools: str = "[]",
+    scopes: str = "[]",
+    expiry_hours: int = 24,
+) -> str:
+    """Issue a signed capability token for *subject* signed by *issuer_id*.
+
+    Tokens allow agents to prove authorization for specific tools and
+    scopes.  The issuer must have an Ed25519 keypair (use adhd_gen_key
+    first).  Returns a signed token string that can be verified with
+    adhd_verify_token and passed to tools like adhd_post and adhd_send.
+
+    Args:
+        issuer_id: Agent ID of the token issuer (must have private key)
+        subject: Agent ID that will use the token
+        allowed_tools: JSON list of tool names the token permits
+        scopes: JSON list of scope strings (e.g. '["read", "write"]')
+        expiry_hours: Token validity duration in hours (default 24)
+    """
+    try:
+        tools_list: list[str] = json.loads(allowed_tools)
+    except json.JSONDecodeError:
+        return json.dumps({"ok": False, "detail": "allowed_tools must be valid JSON array"})
+    try:
+        scopes_list: list[str] = json.loads(scopes)
+    except json.JSONDecodeError:
+        return json.dumps({"ok": False, "detail": "scopes must be valid JSON array"})
+
+    token = issue_token(
+        issuer_id,
+        subject,
+        allowed_tools=tools_list,
+        scopes=scopes_list,
+        expiry_hours=expiry_hours,
+    )
+    if token is None:
+        return json.dumps({"ok": False, "detail": f"Issuer '{issuer_id}' has no private key"})
+    return json.dumps({"ok": True, "token": token})
+
+
+@mcp.tool()
+async def adhd_verify_token(
+    token: str,
+    required_tool: str = "",
+    caller_id: str = "",
+) -> str:
+    """Verify a signed capability token.
+
+    Checks token signature, expiry, tool permission, and caller
+    identity.  Returns ok=True when all checks pass.
+
+    Args:
+        token: The signed token string (from adhd_issue_token)
+        required_tool: Optional tool name the token must allow
+        caller_id: Optional agent ID that must match the token subject
+    """
+    result = verify_token(
+        token,
+        required_tool=required_tool or None,
+        caller_id=caller_id or None,
+    )
+    return json.dumps(result)
 
 
 # ---------------------------------------------------------------------------
@@ -479,6 +681,7 @@ async def adhd_subscribe(
     type: str | None = None,
     topic: str | None = None,
     recipient: str | None = None,
+    token: str = "",
 ) -> str:
     """Subscribe to bus messages matching given filters.
 
@@ -489,7 +692,11 @@ async def adhd_subscribe(
         type: Only match messages of this type
         topic: Only match messages of this topic
         recipient: Only match messages with this payload.recipient
+        token: Optional capability token for access control
     """
+    err = _check_access(token, "read", "adhd_subscribe")
+    if err:
+        return err
     global _subscribed_filters
     filters: dict[str, str] = {}
     if type:
@@ -513,12 +720,18 @@ async def adhd_unsubscribe() -> str:
 
 
 @mcp.tool()
-async def adhd_poll() -> str:
+async def adhd_poll(token: str = "") -> str:
     """Return new unread bus messages matching active subscriptions.
 
     Returns only messages posted since the last adhd_poll or adhd_wait call.
     Does not block — returns empty if nothing new.
+
+    Args:
+        token: Optional capability token for access control
     """
+    err = _check_access(token, "read", "adhd_poll")
+    if err:
+        return err
     global _read_pos
     t = _subscribed_filters.get("type")
     tp = _subscribed_filters.get("topic")
@@ -608,6 +821,53 @@ async def adhd_migrate_to_push() -> str:
             f"Still pending: {pending}. Will retry on next call."
         )
     return f"All {len(active_agents)} agents acknowledged migration."
+
+
+# ---------------------------------------------------------------------------
+# Cross-bus bridging tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def adhd_bridge_register(
+    target_slug: str,
+    type: str | None = None,
+    topic: str | None = None,
+) -> str:
+    """Register a bridge that forwards matching messages to another bus.
+
+    Creates a bridge rule on the bus. When messages are posted via adhd_post
+    and match the optional type/topic filters, they are automatically forwarded
+    to the target bus. If no filters are given, all messages are forwarded.
+
+    Args:
+        target_slug: The slug name of the target bus (e.g., "v0.1.0-alpha")
+        type: Only forward messages of this type (optional)
+        topic: Only forward messages of this topic (optional)
+    """
+    return register_bridge(target_slug, type_filter=type, topic_filter=topic)
+
+
+@mcp.tool()
+async def adhd_bridge_unregister(target_slug: str) -> str:
+    """Remove a bridge rule so messages stop forwarding to the target bus.
+
+    Args:
+        target_slug: The slug name of the target bus to stop forwarding to
+    """
+    return unregister_bridge(target_slug)
+
+
+@mcp.tool()
+async def adhd_bridge_list() -> str:
+    """List all active bridge rules.
+
+    Returns each bridge's source, target, filters, and registration metadata.
+    """
+    rules = get_bridge_rules()
+    if not rules:
+        return "No active bridge rules."
+    return json.dumps(rules, indent=2)
 
 
 # ---------------------------------------------------------------------------

@@ -14,6 +14,10 @@ import adhd.bus as bus
 import adhd.mcp_server as mcp_server_mod
 from adhd.mcp_server import (
     adhd_archive,
+    adhd_bridge_list,
+    adhd_bridge_register,
+    adhd_bridge_unregister,
+    adhd_discover,
     adhd_get_rules,
     adhd_main_check,
     adhd_mcp_change_check,
@@ -28,6 +32,7 @@ from adhd.mcp_server import (
     adhd_send,
     adhd_signin,
     adhd_signout,
+    adhd_snapshot,
     adhd_start_heartbeat,
     adhd_subscribe,
     adhd_unsubscribe,
@@ -46,6 +51,15 @@ def temp_bus(tmp_path: Path) -> Path:
         patch.object(mcp_server_mod, "resolve", return_value=bus_file),
     ):
         yield bus_file
+
+
+@pytest.fixture
+def key_dir(tmp_path: Path) -> Path:
+    """Set up a temporary key directory and patch ADHD_BUS_PATH."""
+    kd = tmp_path / "keys"
+    kd.mkdir(parents=True)
+    with patch.dict(os.environ, {"ADHD_BUS_PATH": str(tmp_path)}):
+        yield kd
 
 
 @pytest.fixture
@@ -260,6 +274,44 @@ async def test_adhd_start_heartbeat(temp_bus: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Cross-bus bridging tools
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bridge_register(temp_bus: Path) -> None:
+    """Registering a bridge via MCP returns success."""
+    result = await adhd_bridge_register("target-bus", type="status")
+    assert "Bridge registered" in result
+    assert "target-bus" in result
+
+
+@pytest.mark.asyncio
+async def test_bridge_unregister(temp_bus: Path) -> None:
+    """Unregistering a bridge via MCP returns success."""
+    await adhd_bridge_register("target-bus")
+    result = await adhd_bridge_unregister("target-bus")
+    assert "removed" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_bridge_list_empty(temp_bus: Path) -> None:
+    """Listing bridges when none are registered."""
+    result = await adhd_bridge_list()
+    assert "No active bridge rules" in result
+
+
+@pytest.mark.asyncio
+async def test_bridge_list_with_rules(temp_bus: Path) -> None:
+    """Listing bridges returns registered rules."""
+    await adhd_bridge_register("bus-a")
+    await adhd_bridge_register("bus-b", type="event")
+    result = await adhd_bridge_list()
+    data = json.loads(result)
+    assert len(data) == 2
+
+
+# ---------------------------------------------------------------------------
 # Self-describing rules
 # ---------------------------------------------------------------------------
 
@@ -420,3 +472,176 @@ def _sample_message() -> dict[str, Any]:
         "topic": "agent-lifecycle",
         "payload": {},
     }
+
+
+# ---------------------------------------------------------------------------
+# Bus snapshot tool
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_adhd_snapshot_empty(temp_bus: Path) -> None:
+    """adhd_snapshot returns a structured checkpoint of an empty bus."""
+    result = json.loads(await adhd_snapshot())
+    assert result["message_count"] == 0
+    assert "bus_path" in result
+    assert "registered_agents" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_snapshot_with_data(temp_bus: Path) -> None:
+    """adhd_snapshot reflects messages on the bus."""
+    bus.write_message(_sample_message())
+    result = json.loads(await adhd_snapshot())
+    assert result["message_count"] >= 1
+    assert result["file_size_bytes"] > 0
+
+
+# ---------------------------------------------------------------------------
+# Bus discovery tool
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_adhd_discover(tmp_path: Path) -> None:
+    """adhd_discover finds the current channel."""
+    slug = "test-channel"
+    channel_dir = tmp_path / slug
+    channel_dir.mkdir()
+    bus_file = channel_dir / "bus.jsonl"
+
+    # discover_buses scans ADHD_BUS_PATH for subdirectories with bus.jsonl,
+    # while write_message uses resolve(). Patch both.
+    with (
+        patch.object(bus, "resolve", return_value=bus_file),
+        patch.object(mcp_server_mod, "resolve", return_value=bus_file),
+        patch.dict(os.environ, {"ADHD_BUS_PATH": str(tmp_path)}),
+    ):
+        bus.write_message(_sample_message())
+        result = json.loads(await adhd_discover())
+
+    assert isinstance(result, list)
+    assert len(result) >= 1
+    assert result[0]["slug"] == slug
+    assert "message_count" in result[0]
+
+
+# ---------------------------------------------------------------------------
+# Access control enforcement
+# ---------------------------------------------------------------------------
+
+
+def _make_token() -> str:
+    """Generate an issuer+subject keypair and return a write-scoped token."""
+    bus.generate_keypair("issuer")
+    bus.generate_keypair(bus.agent_id())
+    token = bus.issue_token(
+        "issuer",
+        bus.agent_id(),
+        allowed_tools=["adhd_post", "adhd_read", "adhd_poll", "adhd_archive", "adhd_signout"],
+        scopes=["read", "write"],
+    )
+    assert token is not None
+    return token
+
+
+def _make_readonly_token() -> str:
+    """Generate a read-only token (no write scope)."""
+    bus.generate_keypair("read-issuer")
+    bus.generate_keypair(bus.agent_id())
+    token = bus.issue_token(
+        "read-issuer",
+        bus.agent_id(),
+        allowed_tools=["adhd_read", "adhd_poll"],
+        scopes=["read"],
+    )
+    assert token is not None
+    return token
+
+
+@pytest.mark.asyncio
+async def test_read_without_token_no_enforcement(temp_bus: Path) -> None:
+    """Without enforcement, read works without a token."""
+    result = await adhd_read()
+    data = json.loads(result)
+    assert isinstance(data, list)
+
+
+@pytest.mark.asyncio
+async def test_post_without_token_no_enforcement(temp_bus: Path) -> None:
+    """Without enforcement, post works without a token."""
+    result = await adhd_post(type="status", topic="test", payload='{"msg":"ok"}')
+    assert "ERROR" not in result
+
+
+@pytest.mark.asyncio
+async def test_post_with_valid_token(temp_bus: Path, key_dir: Path) -> None:
+    """Post with valid token succeeds."""
+    token = _make_token()
+    result = await adhd_post(type="status", topic="test", payload='{"msg":"ok"}', token=token)
+    assert "ERROR" not in result
+
+
+@pytest.mark.asyncio
+async def test_post_with_readonly_token(temp_bus: Path, key_dir: Path) -> None:
+    """Post with read-only token is denied."""
+    token = _make_readonly_token()
+    result = await adhd_post(type="status", topic="test", payload='{"msg":"ok"}', token=token)
+    assert "access_denied" in result
+
+
+@pytest.mark.asyncio
+async def test_read_with_readonly_token(temp_bus: Path, key_dir: Path) -> None:
+    """Read with read-only token succeeds."""
+    token = _make_readonly_token()
+    result = await adhd_read(token=token)
+    data = json.loads(result)
+    assert isinstance(data, list)
+
+
+@pytest.mark.asyncio
+async def test_post_requires_token_enforcement(temp_bus: Path, key_dir: Path) -> None:
+    """With ADHD_ENFORCE_ACCESS_CONTROL, post rejects missing token."""
+    with patch.dict(os.environ, {"ADHD_ENFORCE_ACCESS_CONTROL": "1"}):
+        result = await adhd_post(type="status", topic="test", payload='{"msg":"ok"}')
+    assert "access_denied" in result
+
+
+@pytest.mark.asyncio
+async def test_read_requires_token_enforcement(temp_bus: Path, key_dir: Path) -> None:
+    """With ADHD_ENFORCE_ACCESS_CONTROL, read rejects missing token."""
+    with patch.dict(os.environ, {"ADHD_ENFORCE_ACCESS_CONTROL": "1"}):
+        result = await adhd_read()
+    assert "access_denied" in result
+
+
+@pytest.mark.asyncio
+async def test_post_with_valid_token_enforcement(temp_bus: Path, key_dir: Path) -> None:
+    """With enforcement, valid token allows post."""
+    token = _make_token()
+    with patch.dict(os.environ, {"ADHD_ENFORCE_ACCESS_CONTROL": "1"}):
+        result = await adhd_post(type="status", topic="test", payload='{"msg":"ok"}', token=token)
+    assert "ERROR" not in result
+
+
+@pytest.mark.asyncio
+async def test_poll_without_token_no_enforcement(temp_bus: Path) -> None:
+    """Without enforcement, poll works without a token."""
+    result = await adhd_poll()
+    assert result == "[]"
+
+
+@pytest.mark.asyncio
+async def test_signout_requires_token_enforcement(temp_bus: Path) -> None:
+    """signout with enforcement rejects missing token."""
+    with patch.dict(os.environ, {"ADHD_ENFORCE_ACCESS_CONTROL": "1"}):
+        result = await adhd_signout()
+    assert "access_denied" in result
+
+
+@pytest.mark.asyncio
+async def test_archive_requires_token_enforcement(temp_bus: Path) -> None:
+    """archive with enforcement rejects missing token."""
+    with patch.dict(os.environ, {"ADHD_ENFORCE_ACCESS_CONTROL": "1"}):
+        result = await adhd_archive()
+    assert "access_denied" in result

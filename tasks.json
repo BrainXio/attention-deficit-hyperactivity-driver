@@ -28,49 +28,37 @@
     "adhd-16: Push/event-driven delivery \u2014 subscribe, unsubscribe, poll, wait, migrate_to_push \u2014 PR #24",
     "adhd-15: Agent-noise-threshold monitoring \u2014 get_noise_metrics, check_noise_threshold, adhd_noise_check tool, density warnings on bus",
     "adhd-17: Message signing \u2014 HMAC on each JSONL line (sign_message, verify_signature, adhd_verify_signature tool)",
-    "adhd-18: Lamport clocks \u2014 causal ordering (get_lamport_time, happens_before, adhd_get_lamport_time, adhd_compare_causality tools, 15 tests, models/bus/mcp_server/rules updated)"
+    "adhd-20: Agent verification \u2014 Ed25519 cryptographic identity (generate_keypair, sign_challenge, verify_agent, identity proof in signin)",
+    "adhd-21: Capability tokens \u2014 Ed25519-signed authorization claims (issue_token, verify_token, adhd_issue_token, adhd_verify_token, token enforcement on adhd_post/adhd_send)",
+    "adhd-22: Bus access control \u2014 read/write role enforcement via token scopes (required_scope, _check_access, ADHD_ENFORCE_ACCESS_CONTROL)",
+    "adhd-18: Lamport clocks \u2014 causal ordering (get_lamport_time, happens_before, adhd_get_lamport_time, adhd_compare_causality tools, 17 tests, models/bus/mcp_server/rules updated) \u2014 PR #32"
   ],
   "in_progress": [],
   "pending": [
     {
-      "id": "adhd-18",
-      "subject": "Causal ordering \u2014 Lamport clocks",
-      "description": "Add Lamport logical clock to each message for partial causal ordering across agents. Each agent increments its clock on send and updates on receive. Enable happens-before comparison between messages.",
-      "kanban_status": "done",
-      "priority": {
-        "level": 2,
-        "rpe_weight": 0.7,
-        "value_score": 70
-      },
-      "done": true,
-      "dependencies": [
-        "adhd-17"
-      ]
-    },
-    {
       "id": "adhd-19",
       "subject": "Bus snapshots \u2014 periodic full-state checkpoints",
       "description": "Periodically write full bus state checkpoints for faster recovery and replay. Snapshot includes message count, timestamp range, and agent registry state. Add adhd_snapshot tool.",
-      "kanban_status": "backlog",
+      "kanban_status": "done",
       "priority": {
         "level": 2,
         "rpe_weight": 0.6,
         "value_score": 65
       },
-      "done": false,
+      "done": true,
       "dependencies": []
     },
     {
       "id": "adhd-20",
       "subject": "Agent verification \u2014 cryptographic identity",
       "description": "Implement cryptographic agent identity beyond session ID. Each agent gets an Ed25519 keypair. Signin includes a signature proving key ownership. Prevents agent impersonation.",
-      "kanban_status": "ready",
+      "kanban_status": "done",
       "priority": {
         "level": 1,
         "rpe_weight": 0.85,
         "value_score": 85
       },
-      "done": false,
+      "done": true,
       "dependencies": [
         "adhd-17"
       ]
@@ -79,13 +67,13 @@
       "id": "adhd-21",
       "subject": "Capability tokens \u2014 signed authorization claims",
       "description": "Issue signed capability tokens so agents can prove what they're authorized to do. Tokens include allowed tools, scopes, and expiry. Verified on each MCP tool invocation.",
-      "kanban_status": "backlog",
+      "kanban_status": "done",
       "priority": {
         "level": 2,
         "rpe_weight": 0.8,
         "value_score": 75
       },
-      "done": false,
+      "done": true,
       "dependencies": [
         "adhd-20"
       ]
@@ -94,13 +82,13 @@
       "id": "adhd-22",
       "subject": "Bus access control \u2014 read-only vs read-write roles",
       "description": "Enforce role-based access control at the bus level. Read-only agents can only call read/poll. Read-write agents can post/send. Roles encoded in capability tokens.",
-      "kanban_status": "backlog",
+      "kanban_status": "done",
       "priority": {
         "level": 2,
         "rpe_weight": 0.75,
         "value_score": 70
       },
-      "done": false,
+      "done": true,
       "dependencies": [
         "adhd-21"
       ]
@@ -109,26 +97,26 @@
       "id": "adhd-23",
       "subject": "Bus discovery \u2014 find active buses on the machine",
       "description": "Add adhd_discover tool to scan the filesystem for active bus.jsonl files. Return bus metadata: slug, message count, last activity, active agents.",
-      "kanban_status": "backlog",
+      "kanban_status": "done",
       "priority": {
         "level": 3,
         "rpe_weight": 0.5,
         "value_score": 50
       },
-      "done": false,
+      "done": true,
       "dependencies": []
     },
     {
       "id": "adhd-24",
       "subject": "Cross-bus bridging \u2014 forward messages between buses",
       "description": "Enable message forwarding between independent buses. Bridge rules define which message types/topics cross bus boundaries. Add adhd_bridge_register tool.",
-      "kanban_status": "backlog",
+      "kanban_status": "done",
       "priority": {
         "level": 3,
         "rpe_weight": 0.6,
         "value_score": 55
       },
-      "done": false,
+      "done": true,
       "dependencies": [
         "adhd-17",
         "adhd-23"
