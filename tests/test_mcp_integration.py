@@ -32,6 +32,7 @@ from adhd.mcp_server import (
     adhd_subscribe,
     adhd_unsubscribe,
     adhd_validate,
+    adhd_verify_signature,
     adhd_wait,
 )
 
@@ -363,3 +364,59 @@ async def test_adhd_migrate_to_push_no_supporters(temp_bus: Path) -> None:
     bus.ack_migration()
     result = await adhd_migrate_to_push()
     assert "acknowledged" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# Message signing verification
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_adhd_verify_signature_no_secret(temp_bus: Path) -> None:
+    """When ADHD_BUS_SECRET is not set, verification reports signing disabled."""
+    with patch.dict(os.environ, {}, clear=True):
+        msg = _sample_message()
+        result = json.loads(await adhd_verify_signature(json.dumps(msg)))
+    assert result["ok"] is True
+    assert "not enabled" in result["detail"]
+
+
+@pytest.mark.asyncio
+async def test_adhd_verify_signature_valid(temp_bus: Path) -> None:
+    """A correctly signed message passes verification."""
+    with patch.dict(os.environ, {"ADHD_BUS_SECRET": "test-key"}, clear=True):
+        signed = bus.sign_message(_sample_message())
+        result = json.loads(await adhd_verify_signature(json.dumps(signed)))
+    assert result["ok"] is True
+    assert result["detail"] == "Signature valid"
+
+
+@pytest.mark.asyncio
+async def test_adhd_verify_signature_invalid(temp_bus: Path) -> None:
+    """A tampered message fails verification."""
+    with patch.dict(os.environ, {"ADHD_BUS_SECRET": "test-key"}, clear=True):
+        signed = bus.sign_message(_sample_message())
+        signed["type"] = "signout"  # tamper
+        result = json.loads(await adhd_verify_signature(json.dumps(signed)))
+    assert result["ok"] is False
+    assert "invalid" in result["detail"]
+
+
+@pytest.mark.asyncio
+async def test_adhd_verify_signature_bad_json(temp_bus: Path) -> None:
+    """Non-JSON input returns an error."""
+    result = json.loads(await adhd_verify_signature("not valid json"))
+    assert result["ok"] is False
+    assert "Invalid JSON" in result["detail"]
+
+
+def _sample_message() -> dict[str, Any]:
+    return {
+        "timestamp": bus.now(),
+        "session_id": "sess-123",
+        "agent_id": "agent-a",
+        "branch": "feat/test",
+        "type": "signin",
+        "topic": "agent-lifecycle",
+        "payload": {},
+    }

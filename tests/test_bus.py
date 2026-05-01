@@ -1095,3 +1095,112 @@ def test_reap_stale_does_not_reap_twice(temp_bus: Path) -> None:
     assert len(first) == 1
     second = bus.reap_stale_heartbeats()
     assert second == []
+
+
+# ---------------------------------------------------------------------------
+# Message signing (HMAC)
+# ---------------------------------------------------------------------------
+
+
+def test_sign_message_no_secret(temp_bus: Path) -> None:
+    """When ADHD_BUS_SECRET is not set, sign_message returns message unchanged."""
+    with patch.dict(os.environ, {}, clear=True):
+        msg = _sample_message()
+        signed = bus.sign_message(msg)
+    assert signed == msg
+    assert "hmac" not in signed
+
+
+def test_sign_message_with_secret(temp_bus: Path) -> None:
+    """sign_message adds an 'hmac' field when secret is configured."""
+    with patch.dict(os.environ, {"ADHD_BUS_SECRET": "test-key"}, clear=True):
+        msg = _sample_message()
+        signed = bus.sign_message(msg)
+    assert "hmac" in signed
+    assert isinstance(signed["hmac"], str)
+    assert len(signed["hmac"]) == 64  # SHA-256 hex digest
+
+
+def test_sign_message_deterministic(temp_bus: Path) -> None:
+    """Same input with same secret produces the same HMAC."""
+    with patch.dict(os.environ, {"ADHD_BUS_SECRET": "test-key"}, clear=True):
+        msg = _sample_message()
+        s1 = bus.sign_message(msg)
+        s2 = bus.sign_message(msg)
+    assert s1["hmac"] == s2["hmac"]
+
+
+def test_sign_message_different_keys_produce_different_hmac(temp_bus: Path) -> None:
+    """Different secrets produce different HMACs for the same message."""
+    msg = _sample_message()
+    with patch.dict(os.environ, {"ADHD_BUS_SECRET": "key-one"}, clear=True):
+        s1 = bus.sign_message(msg)
+    with patch.dict(os.environ, {"ADHD_BUS_SECRET": "key-two"}, clear=True):
+        s2 = bus.sign_message(msg)
+    assert s1["hmac"] != s2["hmac"]
+
+
+def test_sign_message_different_payloads_produce_different_hmac(temp_bus: Path) -> None:
+    """Different messages produce different HMACs with the same secret."""
+    with patch.dict(os.environ, {"ADHD_BUS_SECRET": "test-key"}, clear=True):
+        m1 = _sample_message()
+        m2 = _sample_message()
+        m2["type"] = "heartbeat"
+        s1 = bus.sign_message(m1)
+        s2 = bus.sign_message(m2)
+    assert s1["hmac"] != s2["hmac"]
+
+
+def test_sign_message_removes_existing_hmac(temp_bus: Path) -> None:
+    """If message already has an 'hmac' field, it is replaced."""
+    with patch.dict(os.environ, {"ADHD_BUS_SECRET": "test-key"}, clear=True):
+        msg = _sample_message()
+        msg["hmac"] = "old-fake-hmac"
+        signed = bus.sign_message(msg)
+    assert signed["hmac"] != "old-fake-hmac"
+
+
+def test_verify_signature_no_secret(temp_bus: Path) -> None:
+    """When no secret is configured, verify_signature always returns True."""
+    with patch.dict(os.environ, {}, clear=True):
+        assert bus.verify_signature(_sample_message()) is True
+
+
+def test_verify_signature_valid(temp_bus: Path) -> None:
+    """A signed message should verify successfully."""
+    with patch.dict(os.environ, {"ADHD_BUS_SECRET": "test-key"}, clear=True):
+        msg = bus.sign_message(_sample_message())
+        assert bus.verify_signature(msg) is True
+
+
+def test_verify_signature_tampered(temp_bus: Path) -> None:
+    """A tampered message should fail verification."""
+    with patch.dict(os.environ, {"ADHD_BUS_SECRET": "test-key"}, clear=True):
+        msg = bus.sign_message(_sample_message())
+        msg["type"] = "signout"  # tamper with the message
+        assert bus.verify_signature(msg) is False
+
+
+def test_verify_signature_missing_hmac(temp_bus: Path) -> None:
+    """A message without an 'hmac' field should fail when signing is enabled."""
+    with patch.dict(os.environ, {"ADHD_BUS_SECRET": "test-key"}, clear=True):
+        assert bus.verify_signature(_sample_message()) is False
+
+
+def test_write_message_signs(temp_bus: Path) -> None:
+    """write_message adds HMAC when secret is configured."""
+    with patch.dict(os.environ, {"ADHD_BUS_SECRET": "test-key"}, clear=True):
+        bus.write_message(_sample_message())
+    lines = temp_bus.read_text().splitlines()
+    msg = json.loads(lines[0])
+    assert "hmac" in msg
+
+
+def test_write_message_roundtrip(temp_bus: Path) -> None:
+    """Message written with secret can be read back and verified."""
+    with patch.dict(os.environ, {"ADHD_BUS_SECRET": "test-key"}, clear=True):
+        bus.write_message(_sample_message())
+    lines = temp_bus.read_text().splitlines()
+    msg = json.loads(lines[0])
+    with patch.dict(os.environ, {"ADHD_BUS_SECRET": "test-key"}, clear=True):
+        assert bus.verify_signature(msg) is True

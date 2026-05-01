@@ -43,6 +43,7 @@ from adhd.bus import (
     subscribe,
     unsubscribe,
     validate_bus,
+    verify_signature,
     write_message,
 )
 from adhd.bus import (
@@ -281,6 +282,32 @@ async def adhd_reap_stale() -> str:
 async def adhd_resolve() -> str:
     """Print the absolute path to the ADHD bus file for the current repo."""
     return str(resolve())
+
+
+@mcp.tool()
+async def adhd_verify_signature(message_json: str) -> str:
+    """Verify the HMAC signature on a bus message.
+
+    Args:
+        message_json: A single bus message as a JSON string (one line from the bus).
+
+    Returns ok=True if the signature is valid or signing is disabled.
+    Returns ok=False with detail if the signature is missing or invalid.
+    """
+    try:
+        msg = json.loads(message_json)
+    except json.JSONDecodeError as exc:
+        return json.dumps({"ok": False, "detail": f"Invalid JSON: {exc}"})
+    if not isinstance(msg, dict):
+        return json.dumps({"ok": False, "detail": "Message must be a JSON object"})
+    secret = os.environ.get("ADHD_BUS_SECRET")
+    if not secret:
+        return json.dumps(
+            {"ok": True, "detail": "Signing is not enabled (ADHD_BUS_SECRET not set)"}
+        )
+    if verify_signature(msg):
+        return json.dumps({"ok": True, "detail": "Signature valid"})
+    return json.dumps({"ok": False, "detail": "Signature invalid — message may have been tampered"})
 
 
 # ---------------------------------------------------------------------------

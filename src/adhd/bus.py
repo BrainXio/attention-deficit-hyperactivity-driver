@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -12,6 +14,11 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _get_secret() -> str | None:
+    """Return the shared HMAC secret if configured, or None if signing is disabled."""
+    return os.environ.get("ADHD_BUS_SECRET") or None
 
 
 def resolve() -> Path:
@@ -105,8 +112,54 @@ def get_perf_level() -> str:
 # ---------------------------------------------------------------------------
 
 
+def _compute_hmac(payload_json: str, secret: str) -> str:
+    """Compute HMAC-SHA256 hex digest for a JSON string."""
+    return hmac.new(secret.encode(), payload_json.encode(), hashlib.sha256).hexdigest()
+
+
+def sign_message(msg: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of the message with an 'hmac' field added.
+
+    The HMAC is computed over the full JSON representation of the message
+    (excluding any existing 'hmac' field). If no secret is configured, the
+    message is returned as-is.
+
+    The message is serialized with sorted keys and compact separators for
+    deterministic signing.
+    """
+    secret = _get_secret()
+    if not secret:
+        return msg
+    payload = {k: v for k, v in msg.items() if k != "hmac"}
+    payload_json = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    signed = dict(msg)
+    signed["hmac"] = _compute_hmac(payload_json, secret)
+    return signed
+
+
+def verify_signature(msg: dict[str, Any]) -> bool:
+    """Verify the HMAC signature on a bus message.
+
+    Returns True if signing is disabled (no secret configured), or if the
+    message's 'hmac' field matches the recomputed HMAC. Returns False if
+    the message has been tampered with or if the 'hmac' field is missing
+    when signing is enabled.
+    """
+    secret = _get_secret()
+    if not secret:
+        return True
+    if "hmac" not in msg:
+        return False
+    received_hmac = msg["hmac"]
+    payload = {k: v for k, v in msg.items() if k != "hmac"}
+    payload_json = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    expected_hmac = _compute_hmac(payload_json, secret)
+    return hmac.compare_digest(received_hmac, expected_hmac)
+
+
 def write_message(msg: dict[str, Any]) -> None:
-    """Append a message to the bus after validating it."""
+    """Append a message to the bus after signing and validating it."""
+    msg = sign_message(msg)
     bus_path = resolve()
     with bus_path.open("a") as f:
         f.write(json.dumps(msg, separators=(",", ":")) + "\n")
