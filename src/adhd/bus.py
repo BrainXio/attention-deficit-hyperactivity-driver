@@ -157,6 +157,187 @@ def read_messages(
     return messages[-limit:]
 
 
+def get_file_size() -> int:
+    """Return the current byte size of the bus file (0 if missing)."""
+    bus_path = resolve()
+    if not bus_path.exists():
+        return 0
+    return bus_path.stat().st_size
+
+
+def read_messages_since(
+    position: int,
+    limit: int = 200,
+    type_filter: str | None = None,
+    topic_filter: str | None = None,
+    agent_filter: str | None = None,
+    recipient_filter: str | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """Read messages from the bus starting at a byte offset.
+
+    Returns (messages, new_position) where new_position is the end of file
+    after reading. Callers track position between calls to get only new messages.
+    """
+    bus_path = resolve()
+    if not bus_path.exists():
+        return [], 0
+
+    file_size = bus_path.stat().st_size
+    if position >= file_size:
+        return [], file_size
+
+    messages: list[dict[str, Any]] = []
+    with bus_path.open("r") as f:
+        f.seek(position)
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            if type_filter and msg.get("type") != type_filter:
+                continue
+            if topic_filter and msg.get("topic") != topic_filter:
+                continue
+            if agent_filter and msg.get("agent_id") != agent_filter:
+                continue
+            if recipient_filter is not None:
+                p = msg.get("payload", {})
+                if isinstance(p, dict):
+                    rcpt = p.get("recipient")
+                    if recipient_filter == "all":
+                        if rcpt != "all":
+                            continue
+                    elif rcpt != recipient_filter:
+                        continue
+                else:
+                    continue
+            messages.append(msg)
+
+    return messages[-limit:], file_size
+
+
+# ---------------------------------------------------------------------------
+# Subscription protocol
+# ---------------------------------------------------------------------------
+
+
+def subscribe(filters: dict[str, str]) -> str:
+    """Register a subscription on the bus for the current agent.
+
+    Filters can include type, topic, and recipient keys.
+    """
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": "subscription",
+            "topic": "bus-subscriptions",
+            "payload": {"action": "subscribe", "filters": filters},
+        }
+    )
+    return f"Subscribed with filters: {filters}"
+
+
+def unsubscribe() -> str:
+    """Remove the current agent's subscription from the bus."""
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": "unsubscription",
+            "topic": "bus-subscriptions",
+            "payload": {"action": "unsubscribe"},
+        }
+    )
+    return "Unsubscribed."
+
+
+def get_subscriptions() -> dict[str, dict[str, str]]:
+    """Return active subscriptions keyed by agent_id.
+
+    A subscription is active when the most recent subscription/unsubscription
+    message for that agent is a subscription.
+    """
+    messages = read_messages(topic_filter="bus-subscriptions", limit=500)
+    subs: dict[str, dict[str, str]] = {}
+    for msg in messages:
+        payload = msg.get("payload", {})
+        if not isinstance(payload, dict):
+            continue
+        action = payload.get("action")
+        agent = msg.get("agent_id", "")
+        if action == "subscribe":
+            filters = payload.get("filters", {})
+            if isinstance(filters, dict):
+                subs[agent] = {str(k): str(v) for k, v in filters.items()}
+        elif action == "unsubscribe":
+            subs.pop(agent, None)
+    return subs
+
+
+# ---------------------------------------------------------------------------
+# Migration protocol (poll → push)
+# ---------------------------------------------------------------------------
+
+
+def announce_migration() -> str:
+    """Broadcast a migration announcement to all active agents."""
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": "migration_announce",
+            "topic": "bus-migration",
+            "payload": {
+                "action": "migrate-to-push",
+                "message": "Switch to push/event-driven delivery and ditch polling monitors.",
+            },
+        }
+    )
+    return "Migration announcement posted."
+
+
+def ack_migration() -> str:
+    """Acknowledge migration to push-based delivery for the current agent."""
+    write_message(
+        {
+            "timestamp": now(),
+            "session_id": session_id(),
+            "agent_id": agent_id(),
+            "branch": current_branch(),
+            "type": "migration_ack",
+            "topic": "bus-migration",
+            "payload": {"action": "ack"},
+        }
+    )
+    return "Migration acknowledged."
+
+
+def get_pending_migration_acks(active_agents: list[str]) -> list[str]:
+    """Return agent IDs that have NOT yet acknowledged migration.
+
+    Only tracks agents in the active_agents list.
+    """
+    messages = read_messages(topic_filter="bus-migration", limit=500)
+    acked: set[str] = set()
+    for msg in messages:
+        if msg.get("type") == "migration_ack":
+            agent = msg.get("agent_id", "")
+            if isinstance(agent, str):
+                acked.add(agent)
+    return [a for a in active_agents if a not in acked]
+
+
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
@@ -195,6 +376,10 @@ def validate(line: str) -> tuple[bool, str]:
         "hitl_rpe",
         "hitl_approve",
         "hitl_split",
+        "subscription",
+        "unsubscription",
+        "migration_announce",
+        "migration_ack",
     }
     if obj["type"] not in valid_types:
         return False, f"Invalid type: {obj['type']}"

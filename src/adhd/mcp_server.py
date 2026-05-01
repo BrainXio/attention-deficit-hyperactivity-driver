@@ -13,12 +13,15 @@ from mcp.server.fastmcp import FastMCP
 
 from adhd.bus import (
     agent_id,
+    announce_migration,
     archive,
     check_mcp_change_status,
     check_supporters,
     current_branch,
     get_decision_history,
+    get_file_size,
     get_pending_decisions,
+    get_pending_migration_acks,
     get_perf_level,
     hitl_approve_gonogo,
     hitl_claim_decision,
@@ -29,11 +32,14 @@ from adhd.bus import (
     now,
     prepare_mcp_change,
     read_messages,
+    read_messages_since,
     reap_stale_heartbeats,
     resolve,
     session_id,
     signin,
     signout,
+    subscribe,
+    unsubscribe,
     validate_bus,
     write_message,
 )
@@ -48,6 +54,8 @@ from adhd.rules import (
 )
 
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
+
+logger = logging.getLogger(__name__)
 
 mcp = FastMCP(
     "adhd",
@@ -111,6 +119,10 @@ PROTECTED_TYPES = frozenset(
         "signin",
         "signout",
         "heartbeat",
+        "subscription",
+        "unsubscription",
+        "migration_announce",
+        "migration_ack",
     }
 )
 
@@ -361,6 +373,150 @@ async def adhd_get_rules() -> str:
     Agents can call this at startup to learn how the bus works.
     """
     return json.dumps(get_rules(), indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Push/event-driven delivery tools
+# ---------------------------------------------------------------------------
+
+_read_pos: int = 0
+_subscribed_filters: dict[str, str] = {}
+
+
+@mcp.tool()
+async def adhd_subscribe(
+    type: str | None = None,
+    topic: str | None = None,
+    recipient: str | None = None,
+) -> str:
+    """Subscribe to bus messages matching given filters.
+
+    Registers a subscription on the bus so other agents know what you're
+    interested in. Also caches filters locally for adhd_poll/adhd_wait.
+
+    Args:
+        type: Only match messages of this type
+        topic: Only match messages of this topic
+        recipient: Only match messages with this payload.recipient
+    """
+    global _subscribed_filters
+    filters: dict[str, str] = {}
+    if type:
+        filters["type"] = type
+    if topic:
+        filters["topic"] = topic
+    if recipient:
+        filters["recipient"] = recipient
+    if not filters:
+        return "ERROR: At least one filter (type, topic, recipient) is required."
+    _subscribed_filters = filters
+    return subscribe(filters)
+
+
+@mcp.tool()
+async def adhd_unsubscribe() -> str:
+    """Remove the current agent's subscription."""
+    global _subscribed_filters
+    _subscribed_filters = {}
+    return unsubscribe()
+
+
+@mcp.tool()
+async def adhd_poll() -> str:
+    """Return new unread bus messages matching active subscriptions.
+
+    Returns only messages posted since the last adhd_poll or adhd_wait call.
+    Does not block — returns empty if nothing new.
+    """
+    global _read_pos
+    t = _subscribed_filters.get("type")
+    tp = _subscribed_filters.get("topic")
+    r = _subscribed_filters.get("recipient")
+    msgs, new_pos = read_messages_since(
+        _read_pos,
+        type_filter=t,
+        topic_filter=tp,
+        recipient_filter=r,
+    )
+    _read_pos = new_pos
+    if not msgs:
+        return "[]"
+    return json.dumps(msgs, indent=2)
+
+
+@mcp.tool()
+async def adhd_wait(timeout: float = 30.0) -> str:
+    """Block until a matching message arrives or timeout expires.
+
+    Watches the bus file for changes and returns as soon as a message
+    matching the active subscription appears. Returns empty list on timeout.
+
+    Args:
+        timeout: Maximum seconds to wait (default 30, max 120)
+    """
+    global _read_pos
+    timeout = min(timeout, 120.0)
+    deadline = asyncio.get_event_loop().time() + timeout
+    t = _subscribed_filters.get("type")
+    tp = _subscribed_filters.get("topic")
+    r = _subscribed_filters.get("recipient")
+
+    while True:
+        current_size = get_file_size()
+        if current_size > _read_pos:
+            msgs, new_pos = read_messages_since(
+                _read_pos,
+                type_filter=t,
+                topic_filter=tp,
+                recipient_filter=r,
+            )
+            _read_pos = new_pos
+            if msgs:
+                return json.dumps(msgs, indent=2)
+            # File grew but no matching messages — update position and keep waiting
+            _read_pos = current_size
+
+        remaining = deadline - asyncio.get_event_loop().time()
+        if remaining <= 0:
+            return "[]"
+        await asyncio.sleep(min(0.5, remaining))
+
+
+@mcp.tool()
+async def adhd_migrate_to_push() -> str:
+    """Broadcast migration to push/event-driven delivery.
+
+    Posts migration announcements repeatedly until all active agents
+    acknowledge they've switched to push and ditched their monitors.
+    Runs for up to 10 announcement cycles.
+    """
+    max_cycles = 10
+    for cycle in range(1, max_cycles + 1):
+        announce_migration()
+        await asyncio.sleep(5)
+
+        supporters = check_supporters()
+        active_agents = [s["agent_id"] for s in supporters]
+        active_agents.append(agent_id())
+
+        pending = get_pending_migration_acks(active_agents)
+        if not pending:
+            return (
+                f"All {len(active_agents)} active agents acknowledged migration in cycle {cycle}."
+            )
+        logger.info("Migration cycle %d: %d agents still pending: %s", cycle, len(pending), pending)
+
+    # Final check
+    supporters = check_supporters()
+    active_agents = [s["agent_id"] for s in supporters]
+    active_agents.append(agent_id())
+    pending = get_pending_migration_acks(active_agents)
+    if pending:
+        return (
+            f"Migration incomplete after {max_cycles} cycles. "
+            f"Still pending: {pending}. Will retry on next call."
+        )
+    return f"All {len(active_agents)} agents acknowledged migration."
 
 
 # ---------------------------------------------------------------------------
