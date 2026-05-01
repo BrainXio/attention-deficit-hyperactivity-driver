@@ -21,10 +21,12 @@ from adhd.bus import (
     current_branch,
     get_decision_history,
     get_file_size,
+    get_lamport_time,
     get_noise_metrics,
     get_pending_decisions,
     get_pending_migration_acks,
     get_perf_level,
+    happens_before,
     hitl_approve_gonogo,
     hitl_claim_decision,
     hitl_provide_rpe,
@@ -419,6 +421,49 @@ async def adhd_noise_check() -> str:
     result = check_noise_threshold()
     metrics = get_noise_metrics()
     return json.dumps({"status": result, "metrics": metrics}, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Lamport logical clock tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def adhd_get_lamport_time() -> str:
+    """Return the current Lamport logical clock value for this session.
+
+    The clock ticks once per message written and advances from received messages.
+    """
+    return json.dumps({"lamport_clock": get_lamport_time()})
+
+
+@mcp.tool()
+async def adhd_compare_causality(message_a_json: str, message_b_json: str) -> str:
+    """Check if message A potentially happened before message B using Lamport clocks.
+
+    Args:
+        message_a_json: First bus message as a JSON string
+        message_b_json: Second bus message as a JSON string
+
+    Returns a JSON object with happened_before (bool) and detail explaining the result.
+    """
+    try:
+        msg_a = json.loads(message_a_json)
+    except json.JSONDecodeError as exc:
+        return json.dumps({"ok": False, "detail": f"Invalid JSON for message_a: {exc}"})
+    try:
+        msg_b = json.loads(message_b_json)
+    except json.JSONDecodeError as exc:
+        return json.dumps({"ok": False, "detail": f"Invalid JSON for message_b: {exc}"})
+    if not isinstance(msg_a, dict) or not isinstance(msg_b, dict):
+        return json.dumps({"ok": False, "detail": "Both messages must be JSON objects"})
+
+    before = happens_before(msg_a, msg_b)
+    clock_a = msg_a.get("lamport_clock", 0)
+    clock_b = msg_b.get("lamport_clock", 0)
+    verb = "potentially happened before" if before else "did NOT happen before"
+    detail = f"Message A (clock={clock_a}) {verb} message B (clock={clock_b})"
+    return json.dumps({"ok": True, "happened_before": before, "detail": detail})
 
 
 # ---------------------------------------------------------------------------

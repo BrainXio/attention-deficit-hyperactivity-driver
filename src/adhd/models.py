@@ -37,3 +37,4 @@ class BusMessage(BaseModel):
     ]
     topic: str
     payload: dict[str, object] = Field(default_factory=dict)
+    lamport_clock: int = Field(default=0, description="Lamport logical clock value")
