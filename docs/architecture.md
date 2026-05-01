@@ -41,7 +41,7 @@ Every agent writes a heartbeat every 10 minutes. If an agent misses 2 heartbeats
 repo-root/
   src/adhd/
     __init__.py         # Package marker
-    bus.py              # Core logic (resolve, I/O, validation, archival)
+    bus.py              # Core logic (resolve, I/O, validation, archival, subscriptions, noise monitoring)
     models.py           # Pydantic models
     mcp_server.py       # FastMCP server
     notifications.py    # Desktop and Telegram notification helpers
@@ -59,18 +59,20 @@ repo-root/
 
 ## Environment Variables
 
-| Variable                | Purpose                                                              |
-| ----------------------- | -------------------------------------------------------------------- |
-| `ADHD_BUS_PATH`         | Storage directory prefix (default: `~/.brainxio/adhd`)               |
-| `ADHD_BUS_SLUG`         | Bus name/key in that directory (default: git toplevel name)          |
-| `ADHD_SESSION_ID`       | Fixed session identifier (default: random 8-char UUID)               |
-| `ADHD_AGENT_ID`         | Agent identifier (default: `agent-{session_id}`)                     |
-| `ADHD_PERF_LEVEL`       | Supporter capability: `low`, `medium`, or `high` (default: `medium`) |
-| `ADHD_ENABLE_SUPPORTER` | Set to `1` to mark session as a supporter (additive)                 |
-| `ADHD_NOTIFY_URGENCY`   | notify-send urgency level: `low`, `normal`, `critical`               |
-| `ADHD_NOTIFY_INTERVAL`  | Polling interval in seconds for `hitl-notify.py --daemon`            |
-| `TELEGRAM_BOT_TOKEN`    | Telegram bot token for notification fallback                         |
-| `TELEGRAM_CHAT_ID`      | Telegram chat ID for notification fallback                           |
+| Variable                     | Purpose                                                              |
+| ---------------------------- | -------------------------------------------------------------------- |
+| `ADHD_BUS_PATH`              | Storage directory prefix (default: `~/.brainxio/adhd`)               |
+| `ADHD_BUS_SLUG`              | Bus name/key in that directory (default: git toplevel name)          |
+| `ADHD_SESSION_ID`            | Fixed session identifier (default: random 8-char UUID)               |
+| `ADHD_AGENT_ID`              | Agent identifier (default: `agent-{session_id}`)                     |
+| `ADHD_PERF_LEVEL`            | Supporter capability: `low`, `medium`, or `high` (default: `medium`) |
+| `ADHD_ENABLE_SUPPORTER`      | Set to `1` to mark session as a supporter (additive)                 |
+| `ADHD_NOTIFY_URGENCY`        | notify-send urgency level: `low`, `normal`, `critical`               |
+| `ADHD_NOTIFY_INTERVAL`       | Polling interval in seconds for `hitl-notify.py --daemon`            |
+| `TELEGRAM_BOT_TOKEN`         | Telegram bot token for notification fallback                         |
+| `TELEGRAM_CHAT_ID`           | Telegram chat ID for notification fallback                           |
+| `ADHD_NOISE_THRESHOLD`       | Max messages/minute before density warning (default: 50)             |
+| `ADHD_NOISE_AGENT_THRESHOLD` | Max active agents before density warning (default: 20)               |
 
 ### Cross-Repo Coordination
 
@@ -88,30 +90,36 @@ The sole interface is `adhd-mcp`, a FastMCP stdio server. All agent interactions
 
 ### Tools
 
-| Tool                           | Purpose                                   |
-| ------------------------------ | ----------------------------------------- |
-| `adhd_signin`                  | Register session on the bus               |
-| `adhd_signout`                 | Deregister session                        |
-| `adhd_start_heartbeat`         | Start background heartbeat timer          |
-| `adhd_read`                    | Read/filter messages                      |
-| `adhd_post`                    | Post a generic message                    |
-| `adhd_send`                    | Send message to specific agent            |
-| `adhd_main_check`              | Check active supporter sessions           |
-| `adhd_validate`                | Validate bus integrity                    |
-| `adhd_archive`                 | Archive old messages and reap stale       |
-| `adhd_reap_stale`              | Auto-signout sessions with old heartbeats |
-| `adhd_resolve`                 | Print canonical bus path                  |
-| `adhd_get_rules`               | Return structured protocol rules          |
-| `adhd_mcp_change_prepare`      | Signal server code change about to start  |
-| `adhd_mcp_change_ready`        | Signal server code change complete        |
-| `adhd_mcp_change_check`        | Check if any server is being modified     |
-| `adhd_human_claim_decision`    | Claim a HITL decision for human review    |
-| `adhd_human_release_decision`  | Release a claimed HITL decision           |
-| `adhd_human_provide_rpe`       | Provide RPE feedback for a decision       |
-| `adhd_human_approve_gonogo`    | Approve or reject a Go/NoGo action        |
-| `adhd_human_split_duties`      | Split supporter duties across agents      |
-| `adhd_human_pending_decisions` | List all pending HITL decisions           |
-| `adhd_human_decision_history`  | Get history for a specific decision       |
+| Tool                           | Purpose                                          |
+| ------------------------------ | ------------------------------------------------ |
+| `adhd_signin`                  | Register session on the bus                      |
+| `adhd_signout`                 | Deregister session                               |
+| `adhd_start_heartbeat`         | Start background heartbeat timer                 |
+| `adhd_read`                    | Read/filter messages (supports recipient filter) |
+| `adhd_post`                    | Post a generic message                           |
+| `adhd_send`                    | Send message to specific agent                   |
+| `adhd_main_check`              | Check active supporter sessions                  |
+| `adhd_validate`                | Validate bus integrity                           |
+| `adhd_archive`                 | Archive old messages and reap stale              |
+| `adhd_reap_stale`              | Auto-signout sessions with old heartbeats        |
+| `adhd_resolve`                 | Print canonical bus path                         |
+| `adhd_get_rules`               | Return structured protocol rules                 |
+| `adhd_mcp_change_prepare`      | Signal server code change about to start         |
+| `adhd_mcp_change_ready`        | Signal server code change complete               |
+| `adhd_mcp_change_check`        | Check if any server is being modified            |
+| `adhd_human_claim_decision`    | Claim a HITL decision for human review           |
+| `adhd_human_release_decision`  | Release a claimed HITL decision                  |
+| `adhd_human_provide_rpe`       | Provide RPE feedback for a decision              |
+| `adhd_human_approve_gonogo`    | Approve or reject a Go/NoGo action               |
+| `adhd_human_split_duties`      | Split supporter duties across agents             |
+| `adhd_human_pending_decisions` | List all pending HITL decisions                  |
+| `adhd_human_decision_history`  | Get history for a specific decision              |
+| `adhd_subscribe`               | Subscribe to bus messages matching filters       |
+| `adhd_unsubscribe`             | Remove the current agent's subscription          |
+| `adhd_poll`                    | Return new unread messages (non-blocking)        |
+| `adhd_wait`                    | Block until matching message or timeout          |
+| `adhd_migrate_to_push`         | Broadcast push migration and track acks          |
+| `adhd_noise_check`             | Return bus density metrics and threshold status  |
 
 ## Message Flow
 
@@ -234,6 +242,124 @@ When agents reach decisions requiring human judgment (PR approvals, risky deploy
 | `hitl_split`   | Split or reassign supporter duties      |
 
 Decisions auto-expire after 30 minutes. Pending decisions are queried via `adhd_human_pending_decisions`.
+
+## Recipient Filter
+
+`adhd_read` supports an optional `recipient` parameter that filters messages by `payload.recipient`:
+
+- **Exact match**: `recipient="agent-xyz"` returns only messages addressed to that agent.
+- **Broadcast wildcard**: `recipient="all"` returns only messages where `payload.recipient` is exactly `"all"`.
+- **No filter**: When `recipient` is not provided, messages are returned regardless of recipient.
+
+Messages without a `payload` dict or where `payload.recipient` is absent are skipped when a recipient filter is active.
+
+## Subscription Protocol (Push/Event-Driven Delivery)
+
+Agents can subscribe to bus messages matching specific filters instead of polling the full bus. Subscription state lives on the bus (consistent with the append-only architecture), and each MCP server tracks its own read position locally.
+
+### Protocol
+
+1. **Subscribe**: Agent calls `adhd_subscribe(type, topic, recipient)` to register interest.
+2. **Poll**: `adhd_poll()` returns only new messages matching the active subscription since the last poll.
+3. **Wait**: `adhd_wait(timeout)` blocks (up to 120s) until a matching message appears, using `os.stat`-based file watching.
+4. **Unsubscribe**: `adhd_unsubscribe()` removes the subscription from the bus and clears local state.
+
+### Bus Message Format
+
+```json
+{
+  "type": "subscription",
+  "topic": "bus-subscriptions",
+  "payload": {
+    "action": "subscribe",
+    "filters": {"type": "heartbeat", "topic": "agent-lifecycle"}
+  }
+}
+```
+
+Unsubscription:
+
+```json
+{
+  "type": "unsubscription",
+  "topic": "bus-subscriptions",
+  "payload": {"action": "unsubscribe"}
+}
+```
+
+Active subscriptions are queried via `get_subscriptions()`, which returns the latest subscription state per agent.
+
+## Migration Protocol (Poll -> Push)
+
+When push/event-driven delivery is deployed, supporters broadcast migration announcements until every active agent acknowledges the switch.
+
+### Protocol
+
+1. **Announce**: `adhd_migrate_to_push()` posts repeated `migration_announce` messages.
+2. **Acknowledge**: Each agent posts a `migration_ack` message after switching to push delivery.
+3. **Track**: `get_pending_migration_acks(active_agents)` returns agents that haven't yet ack'd.
+4. **Complete**: The broadcast loop exits when all agents ack or after 10 cycles (with 5-second intervals).
+
+### Bus Message Format
+
+```json
+{
+  "type": "migration_announce",
+  "topic": "bus-migration",
+  "payload": {
+    "action": "migrate-to-push",
+    "message": "Switch to push/event-driven delivery and ditch polling monitors."
+  }
+}
+```
+
+```json
+{
+  "type": "migration_ack",
+  "topic": "bus-migration",
+  "payload": {"action": "ack"}
+}
+```
+
+## Noise Threshold Monitoring
+
+When bus message rate or active agent count exceeds configurable thresholds, density warnings are posted to help agents self-regulate and detect runaway loops.
+
+### Configuration
+
+- `ADHD_NOISE_THRESHOLD`: Maximum messages per minute (default: 50).
+- `ADHD_NOISE_AGENT_THRESHOLD`: Maximum active agents (default: 20).
+
+Both are configurable via environment variables.
+
+### Protocol
+
+1. **Check**: `adhd_noise_check` returns current metrics (messages/minute, agent count) and whether thresholds are exceeded.
+2. **Warn**: When thresholds are exceeded, `check_noise_threshold()` posts a `bus-noise` event with the current metrics and specific reasons.
+
+### Metrics
+
+`get_noise_metrics(window_minutes=5)` scans the bus over the given time window and returns:
+
+- `messages_per_minute`: Float rate over the window.
+- `active_agents`: Unique agent count in the window.
+- `total_messages`: Total messages in the window.
+- `threshold_per_minute` / `threshold_agents`: Configured limits.
+- `warning_active`: True if either threshold is exceeded.
+
+### Bus Message Format
+
+```json
+{
+  "type": "event",
+  "topic": "bus-noise",
+  "payload": {
+    "warning": "density_warning",
+    "reasons": ["message rate 62.0/min exceeds threshold 50/min"],
+    "metrics": {"messages_per_minute": 62.0, "active_agents": 5, ...}
+  }
+}
+```
 
 ## Notification System
 
