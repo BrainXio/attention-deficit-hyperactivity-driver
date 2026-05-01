@@ -9,6 +9,7 @@ import logging
 import os
 import subprocess
 import uuid
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -572,17 +573,33 @@ def reap_stale_heartbeats() -> list[dict[str, str]]:
 
 
 def signin() -> str:
-    """Write a signin message."""
-    payload: dict[str, Any] = {}
+    """Write a signin message with Ed25519 identity proof."""
+    from adhd.identity import load_or_create_identity, sign_challenge
+
+    _agent_id = agent_id()
+    ts = now()
+
+    # Load or create Ed25519 identity
+    private_bytes, public_bytes = load_or_create_identity(_agent_id)
+
+    # Build challenge from session + timestamp and sign it
+    challenge = f"{session_id()}:{ts}"
+    signature = sign_challenge(private_bytes, challenge)
+
+    payload: dict[str, Any] = {
+        "public_key": urlsafe_b64encode(public_bytes).decode(),
+        "identity_challenge": challenge,
+        "identity_signature": urlsafe_b64encode(signature).decode(),
+    }
     if os.environ.get("ADHD_ENABLE_SUPPORTER"):
         payload["supporter"] = True
         payload["perf_level"] = get_perf_level()
 
     write_message(
         {
-            "timestamp": now(),
+            "timestamp": ts,
             "session_id": session_id(),
-            "agent_id": agent_id(),
+            "agent_id": _agent_id,
             "branch": current_branch(),
             "type": "signin",
             "topic": "agent-lifecycle",
@@ -608,6 +625,72 @@ def signout() -> str:
         }
     )
     return "Signed out."
+
+
+def verify_agent_identity(agent_id: str) -> dict[str, Any]:
+    """Verify an agent's identity by checking their most recent signin.
+
+    Looks up the agent's latest signin message and verifies the Ed25519
+    signature proving they own the private key for the claimed public key.
+
+    Returns:
+        {"ok": True, "agent_id": ..., "public_key": ..., "detail": ...}
+        {"ok": False, "agent_id": ..., "detail": ...}
+    """
+    from adhd.identity import verify_challenge
+
+    # Find the most recent signin for this agent (scan in reverse)
+    messages = read_messages(type_filter="signin", limit=500)
+    signin_msg: dict[str, Any] | None = None
+    for msg in reversed(messages):
+        if msg.get("agent_id") == agent_id:
+            signin_msg = msg
+            break
+
+    if signin_msg is None:
+        return {"ok": False, "agent_id": agent_id, "detail": "No signin found for this agent"}
+
+    payload = signin_msg.get("payload", {})
+    if not isinstance(payload, dict):
+        return {"ok": False, "agent_id": agent_id, "detail": "Signin payload is not a dict"}
+
+    public_key_b64: object = payload.get("public_key")
+    challenge: object = payload.get("identity_challenge")
+    signature_b64: object = payload.get("identity_signature")
+
+    if not (
+        isinstance(public_key_b64, str)
+        and isinstance(challenge, str)
+        and isinstance(signature_b64, str)
+    ):
+        return {
+            "ok": False,
+            "agent_id": agent_id,
+            "detail": (
+                "Signin missing identity proof fields "
+                "(public_key, identity_challenge, identity_signature)"
+            ),
+        }
+
+    try:
+        public_bytes = urlsafe_b64decode(public_key_b64)
+        signature = urlsafe_b64decode(signature_b64)
+    except Exception as exc:
+        return {"ok": False, "agent_id": agent_id, "detail": f"Invalid base64 encoding: {exc}"}
+
+    if not verify_challenge(public_bytes, challenge, signature):
+        return {
+            "ok": False,
+            "agent_id": agent_id,
+            "detail": "Identity signature invalid — agent may be impersonated",
+        }
+
+    return {
+        "ok": True,
+        "agent_id": agent_id,
+        "public_key": public_key_b64,
+        "detail": f"Identity verified for {agent_id}",
+    }
 
 
 def post(

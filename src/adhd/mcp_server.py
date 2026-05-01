@@ -43,6 +43,7 @@ from adhd.bus import (
     subscribe,
     unsubscribe,
     validate_bus,
+    verify_agent_identity,
     verify_signature,
     write_message,
 )
@@ -308,6 +309,21 @@ async def adhd_verify_signature(message_json: str) -> str:
     if verify_signature(msg):
         return json.dumps({"ok": True, "detail": "Signature valid"})
     return json.dumps({"ok": False, "detail": "Signature invalid — message may have been tampered"})
+
+
+@mcp.tool()
+async def adhd_verify_identity(agent_id: str) -> str:
+    """Verify an agent's Ed25519 identity proof from their most recent signin.
+
+    Checks that the agent signed their identity challenge with the private key
+    corresponding to the public key they advertise. Returns ok=True if the
+    agent's identity is cryptographically verified.
+
+    Args:
+        agent_id: The agent ID to verify (e.g., "agent-abc123").
+    """
+    result = verify_agent_identity(agent_id)
+    return json.dumps(result, indent=2)
 
 
 # ---------------------------------------------------------------------------

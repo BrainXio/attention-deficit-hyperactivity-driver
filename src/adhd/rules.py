@@ -15,7 +15,7 @@ def get_rules() -> dict[str, object]:
     """
     return {
         "package": "adhd",
-        "version": "0.1.0",
+        "version": "0.1.0-alpha",
         "protocols": {
             "signin_signout": {
                 "description": "Every session must sign in on start and sign out before exit",
@@ -67,6 +67,15 @@ def get_rules() -> dict[str, object]:
                     "adhd_human_split_duties",
                 ],
                 "note": "State lives on the bus — another-intelligence reads and reacts",
+            },
+            "identity": {
+                "description": "Ed25519 agent identity verification — prevents impersonation",
+                "tool": "adhd_verify_identity",
+                "note": "Each agent generates an Ed25519 keypair on first signin. "
+                "Signin includes a public_key, challenge, and signature proving "
+                "the agent owns the private key. Other agents can verify identity "
+                "by calling adhd_verify_identity.",
+                "key_storage": "~/.brainxio/adhd/{slug}/keys/{agent_id}/id_ed25519",
             },
             "rules": {
                 "description": "Self-describing bus protocol (this tool)",
@@ -147,5 +156,7 @@ def get_rules() -> dict[str, object]:
             {"tool": "adhd_human_approve_gonogo", "purpose": "Approve/reject Go/NoGo action"},
             {"tool": "adhd_human_split_duties", "purpose": "Human splits supporter duties"},
             {"tool": "adhd_get_rules", "purpose": "Return these protocol rules"},
+            {"tool": "adhd_verify_identity", "purpose": "Verify agent Ed25519 identity proof"},
+            {"tool": "adhd_verify_signature", "purpose": "Verify HMAC signature on a message"},
         ],
     }
