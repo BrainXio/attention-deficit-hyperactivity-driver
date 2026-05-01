@@ -24,6 +24,9 @@ from adhd.mcp_server import (
     adhd_mcp_change_prepare,
     adhd_mcp_change_ready,
     adhd_migrate_to_push,
+    adhd_namespace_list,
+    adhd_namespace_register,
+    adhd_namespace_unregister,
     adhd_noise_check,
     adhd_poll,
     adhd_post,
@@ -307,6 +310,44 @@ async def test_bridge_list_with_rules(temp_bus: Path) -> None:
     await adhd_bridge_register("bus-a")
     await adhd_bridge_register("bus-b", type="event")
     result = await adhd_bridge_list()
+    data = json.loads(result)
+    assert len(data) == 2
+
+
+# ---------------------------------------------------------------------------
+# Namespace routing tools
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_namespace_register(temp_bus: Path) -> None:
+    """Registering a namespace via MCP returns success."""
+    result = await adhd_namespace_register("my-project", "target-bus")
+    assert "Namespace" in result
+    assert "my-project" in result
+
+
+@pytest.mark.asyncio
+async def test_namespace_unregister(temp_bus: Path) -> None:
+    """Unregistering a namespace via MCP returns success."""
+    await adhd_namespace_register("my-project", "target-bus")
+    result = await adhd_namespace_unregister("my-project")
+    assert "removed" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_namespace_list_empty(temp_bus: Path) -> None:
+    """Listing namespaces when none are registered."""
+    result = await adhd_namespace_list()
+    assert "No namespace routing rules" in result
+
+
+@pytest.mark.asyncio
+async def test_namespace_list_with_rules(temp_bus: Path) -> None:
+    """Listing namespaces returns registered mappings."""
+    await adhd_namespace_register("project-a", "bus-a")
+    await adhd_namespace_register("project-b", "bus-b")
+    result = await adhd_namespace_list()
     data = json.loads(result)
     assert len(data) == 2
 
