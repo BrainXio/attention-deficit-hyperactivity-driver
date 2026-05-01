@@ -211,6 +211,8 @@ def validate_bus() -> tuple[bool, str]:
 # Supporter management
 # ---------------------------------------------------------------------------
 
+_REAP_THRESHOLD = timedelta(minutes=15)
+
 
 def _is_session_alive(msg: dict[str, Any]) -> bool:
     """Check if a session's most recent activity is within the heartbeat window."""
@@ -255,6 +257,63 @@ def check_supporters() -> list[dict[str, Any]]:
         for sid, msg in active.items()
         if _is_session_alive(msg)
     ]
+
+
+def reap_stale_heartbeats() -> list[dict[str, str]]:
+    """Auto-signout sessions whose most recent heartbeat is older than 15 minutes.
+
+    Scans the bus for active sessions and writes signout messages for any
+    whose last heartbeat/signin exceeds the reaping threshold. This keeps
+    the active-supporters list accurate when agents crash or exit without
+    signing out.
+
+    Returns a list of reaped sessions with session_id and agent_id.
+    """
+    messages = read_messages(limit=500)
+    sessions: dict[str, dict[str, str]] = {}
+    cutoff = datetime.now(UTC) - _REAP_THRESHOLD
+
+    for msg in messages:
+        sid = msg.get("session_id")
+        if not isinstance(sid, str):
+            continue
+
+        if msg.get("type") == "signout":
+            sessions.pop(sid, None)
+            continue
+
+        if msg.get("type") in {"signin", "heartbeat"}:
+            ts_str = msg.get("timestamp", "")
+            try:
+                ts = datetime.fromisoformat(ts_str)
+            except ValueError:
+                continue
+            if ts > cutoff:
+                sessions.pop(sid, None)
+                continue
+            if sid not in sessions:
+                sessions[sid] = {
+                    "session_id": sid,
+                    "agent_id": msg.get("agent_id", "unknown"),
+                    "last_seen": ts_str,
+                }
+
+    reaped: list[dict[str, str]] = []
+    for sid, info in sessions.items():
+        write_message(
+            {
+                "timestamp": now(),
+                "session_id": sid,
+                "agent_id": info["agent_id"],
+                "branch": "unknown",
+                "type": "signout",
+                "topic": "agent-lifecycle",
+                "payload": {"reason": "stale-heartbeat-reaped"},
+            }
+        )
+        reaped.append(info)
+
+    return reaped
 
 
 # ---------------------------------------------------------------------------
@@ -686,7 +745,13 @@ ARCHIVE_KEEP = 2_000
 
 
 def archive() -> str:
-    """Archive old messages when the bus exceeds the size limit."""
+    """Archive old messages when the bus exceeds the size limit.
+
+    Reaps stale heartbeat entries before archiving to keep the supporters
+    list accurate.
+    """
+    reap_stale_heartbeats()
+
     bus_path = resolve()
     if not bus_path.exists():
         return "Bus file does not exist."
