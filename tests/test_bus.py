@@ -838,6 +838,146 @@ def test_get_active_claims_stale(temp_bus: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Noise threshold monitoring
+# ---------------------------------------------------------------------------
+
+
+def test_get_noise_metrics_empty_bus(temp_bus: Path) -> None:
+    metrics = bus.get_noise_metrics()
+    assert metrics["messages_per_minute"] == 0.0
+    assert metrics["active_agents"] == 0
+    assert metrics["total_messages"] == 0
+    assert metrics["warning_active"] is False
+
+
+def test_get_noise_metrics_default_thresholds(temp_bus: Path) -> None:
+    with patch.dict(os.environ, {}, clear=True):
+        metrics = bus.get_noise_metrics()
+    assert metrics["threshold_per_minute"] == 50
+    assert metrics["threshold_agents"] == 20
+
+
+def test_get_noise_metrics_custom_thresholds(temp_bus: Path) -> None:
+    with patch.dict(os.environ, {"ADHD_NOISE_THRESHOLD": "30", "ADHD_NOISE_AGENT_THRESHOLD": "10"}):
+        metrics = bus.get_noise_metrics()
+    assert metrics["threshold_per_minute"] == 30
+    assert metrics["threshold_agents"] == 10
+
+
+def test_get_noise_metrics_counts_messages_in_window(temp_bus: Path) -> None:
+    for _ in range(5):
+        bus.write_message(_sample_message())
+    metrics = bus.get_noise_metrics(window_minutes=60)
+    assert metrics["total_messages"] == 5
+    assert metrics["messages_per_minute"] > 0
+    assert metrics["active_agents"] >= 1
+
+
+def test_get_noise_metrics_excludes_messages_outside_window(temp_bus: Path) -> None:
+    old_ts = (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
+    msg = _sample_message()
+    msg["timestamp"] = old_ts
+    bus.write_message(msg)
+    metrics = bus.get_noise_metrics(window_minutes=5)
+    assert metrics["total_messages"] == 0
+
+
+def test_get_noise_metrics_unique_agents(temp_bus: Path) -> None:
+    for agent in ["agent-a", "agent-b", "agent-c"]:
+        msg = _sample_message()
+        msg["agent_id"] = agent
+        bus.write_message(msg)
+    metrics = bus.get_noise_metrics(window_minutes=60)
+    assert metrics["active_agents"] == 3
+
+
+def test_get_noise_metrics_rate_warning(temp_bus: Path) -> None:
+    with patch.dict(os.environ, {"ADHD_NOISE_THRESHOLD": "2"}):
+        for _ in range(10):
+            bus.write_message(_sample_message())
+        metrics = bus.get_noise_metrics(window_minutes=1)
+    assert metrics["warning_active"] is True
+
+
+def test_get_noise_metrics_agent_warning(temp_bus: Path) -> None:
+    with patch.dict(os.environ, {"ADHD_NOISE_AGENT_THRESHOLD": "1"}):
+        for agent in ["agent-a", "agent-b"]:
+            msg = _sample_message()
+            msg["agent_id"] = agent
+            bus.write_message(msg)
+        metrics = bus.get_noise_metrics(window_minutes=60)
+    assert metrics["warning_active"] is True
+
+
+def test_get_noise_metrics_no_warning_when_below_thresholds(temp_bus: Path) -> None:
+    with patch.dict(
+        os.environ, {"ADHD_NOISE_THRESHOLD": "100", "ADHD_NOISE_AGENT_THRESHOLD": "100"}
+    ):
+        bus.write_message(_sample_message())
+        metrics = bus.get_noise_metrics(window_minutes=60)
+    assert metrics["warning_active"] is False
+
+
+def test_check_noise_threshold_normal(temp_bus: Path) -> None:
+    with patch.dict(
+        os.environ, {"ADHD_NOISE_THRESHOLD": "100", "ADHD_NOISE_AGENT_THRESHOLD": "100"}
+    ):
+        bus.write_message(_sample_message())
+        result = bus.check_noise_threshold()
+    assert "normal" in result.lower()
+
+
+def test_check_noise_threshold_exceeded_rate(temp_bus: Path) -> None:
+    with patch.dict(os.environ, {"ADHD_NOISE_THRESHOLD": "1", "ADHD_NOISE_AGENT_THRESHOLD": "100"}):
+        for _ in range(10):
+            bus.write_message(_sample_message())
+        result = bus.check_noise_threshold()
+    assert "WARNING" in result
+    assert "message rate" in result
+
+
+def test_check_noise_threshold_exceeded_agents(temp_bus: Path) -> None:
+    with patch.dict(os.environ, {"ADHD_NOISE_THRESHOLD": "100", "ADHD_NOISE_AGENT_THRESHOLD": "1"}):
+        for agent in ["agent-a", "agent-b", "agent-c"]:
+            msg = _sample_message()
+            msg["agent_id"] = agent
+            bus.write_message(msg)
+        result = bus.check_noise_threshold()
+    assert "WARNING" in result
+    assert "active agents" in result
+
+
+def test_check_noise_threshold_posts_warning_message(temp_bus: Path) -> None:
+    with patch.dict(os.environ, {"ADHD_NOISE_THRESHOLD": "1", "ADHD_NOISE_AGENT_THRESHOLD": "100"}):
+        for _ in range(10):
+            bus.write_message(_sample_message())
+        bus.check_noise_threshold()
+    warnings = bus.read_messages(topic_filter="bus-noise")
+    assert len(warnings) == 1
+    assert warnings[0]["payload"]["warning"] == "density_warning"
+
+
+def test_check_noise_threshold_exceeded_both(temp_bus: Path) -> None:
+    with patch.dict(os.environ, {"ADHD_NOISE_THRESHOLD": "1", "ADHD_NOISE_AGENT_THRESHOLD": "1"}):
+        for agent in ["agent-a", "agent-b", "agent-a", "agent-b", "agent-a", "agent-b"]:
+            msg = _sample_message()
+            msg["agent_id"] = agent
+            bus.write_message(msg)
+        result = bus.check_noise_threshold()
+    assert "WARNING" in result
+    assert "message rate" in result
+    assert "active agents" in result
+
+
+def test_check_noise_threshold_skips_invalid_timestamps(temp_bus: Path) -> None:
+    msg = _sample_message()
+    msg["timestamp"] = "not-a-timestamp"
+    bus.write_message(msg)
+    result = bus.check_noise_threshold()
+    assert "normal" in result.lower()
+
+
+# ---------------------------------------------------------------------------
 # Archival
 # ---------------------------------------------------------------------------
 

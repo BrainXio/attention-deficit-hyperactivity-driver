@@ -16,10 +16,12 @@ from adhd.bus import (
     announce_migration,
     archive,
     check_mcp_change_status,
+    check_noise_threshold,
     check_supporters,
     current_branch,
     get_decision_history,
     get_file_size,
+    get_noise_metrics,
     get_pending_decisions,
     get_pending_migration_acks,
     get_perf_level,
@@ -373,6 +375,23 @@ async def adhd_get_rules() -> str:
     Agents can call this at startup to learn how the bus works.
     """
     return json.dumps(get_rules(), indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Noise threshold monitoring
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def adhd_noise_check() -> str:
+    """Return current bus density metrics and check against noise thresholds.
+
+    Reports messages-per-minute, active agent count, and whether configured
+    thresholds (ADHD_NOISE_THRESHOLD, ADHD_NOISE_AGENT_THRESHOLD) are exceeded.
+    """
+    result = check_noise_threshold()
+    metrics = get_noise_metrics()
+    return json.dumps({"status": result, "metrics": metrics}, indent=2)
 
 
 # ---------------------------------------------------------------------------

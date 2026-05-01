@@ -934,6 +934,95 @@ def get_decision_history(decision_id: str) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# Noise threshold monitoring
+# ---------------------------------------------------------------------------
+
+_NOISE_WINDOW_MINUTES = 5
+
+
+def get_noise_metrics(window_minutes: int = _NOISE_WINDOW_MINUTES) -> dict[str, Any]:
+    """Return current bus density metrics over the given time window.
+
+    Returns message rate, active agent count, and threshold configuration.
+    """
+    threshold_per_minute = int(os.environ.get("ADHD_NOISE_THRESHOLD", "50"))
+    threshold_agents = int(os.environ.get("ADHD_NOISE_AGENT_THRESHOLD", "20"))
+
+    cutoff = datetime.now(UTC) - timedelta(minutes=window_minutes)
+    messages = read_messages(limit=2000)
+
+    window_msgs: list[dict[str, Any]] = []
+    agents: set[str] = set()
+    for msg in messages:
+        ts_str = msg.get("timestamp", "")
+        try:
+            ts = datetime.fromisoformat(ts_str)
+        except ValueError:
+            continue
+        if ts >= cutoff:
+            window_msgs.append(msg)
+            agent = msg.get("agent_id", "")
+            if isinstance(agent, str):
+                agents.add(agent)
+
+    msg_count = len(window_msgs)
+    rate = msg_count / window_minutes if window_minutes > 0 else 0.0
+
+    return {
+        "messages_per_minute": round(rate, 2),
+        "active_agents": len(agents),
+        "total_messages": msg_count,
+        "window_minutes": window_minutes,
+        "threshold_per_minute": threshold_per_minute,
+        "threshold_agents": threshold_agents,
+        "warning_active": rate > threshold_per_minute or len(agents) > threshold_agents,
+    }
+
+
+def check_noise_threshold() -> str:
+    """Check bus density against configured thresholds and post a warning if exceeded.
+
+    Posts a density warning message to the bus when the message rate or active
+    agent count exceeds the configured thresholds. Warnings include the current
+    metrics so agents can self-regulate.
+    """
+    metrics = get_noise_metrics()
+    rate = metrics["messages_per_minute"]
+    agents = metrics["active_agents"]
+    threshold_rate = metrics["threshold_per_minute"]
+    threshold_agents = metrics["threshold_agents"]
+
+    if rate > threshold_rate or agents > threshold_agents:
+        reasons: list[str] = []
+        if rate > threshold_rate:
+            reasons.append(f"message rate {rate}/min exceeds threshold {threshold_rate}/min")
+        if agents > threshold_agents:
+            reasons.append(f"active agents {agents} exceeds threshold {threshold_agents}")
+
+        write_message(
+            {
+                "timestamp": now(),
+                "session_id": session_id(),
+                "agent_id": agent_id(),
+                "branch": current_branch(),
+                "type": "event",
+                "topic": "bus-noise",
+                "payload": {
+                    "warning": "density_warning",
+                    "reasons": reasons,
+                    "metrics": metrics,
+                },
+            }
+        )
+        return f"WARNING: Bus density exceeded thresholds. {', '.join(reasons)}."
+
+    return (
+        f"Bus density normal: {rate}/min rate, {agents} active agents "
+        f"(thresholds: {threshold_rate}/min, {threshold_agents} agents)."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Archival
 # ---------------------------------------------------------------------------
 
