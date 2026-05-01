@@ -1081,13 +1081,15 @@ def check_noise_threshold() -> str:
 
 MAX_LINES = 10_000
 ARCHIVE_KEEP = 2_000
+COMPACTION_WARN_AT = 0.8  # warn at 80% of MAX_LINES
 
 
 def archive() -> str:
     """Archive old messages when the bus exceeds the size limit.
 
     Reaps stale heartbeat entries before archiving to keep the supporters
-    list accurate.
+    list accurate. Returns a compaction warning when the bus exceeds 80%
+    of MAX_LINES so agents can proactively archive.
     """
     reap_stale_heartbeats()
 
@@ -1096,18 +1098,28 @@ def archive() -> str:
         return "Bus file does not exist."
 
     lines = bus_path.read_text().splitlines()
-    if len(lines) <= MAX_LINES:
-        return f"Bus has {len(lines)} lines. No archive needed."
+    line_count = len(lines)
 
-    archive_lines = lines[:-ARCHIVE_KEEP]
-    keep_lines = lines[-ARCHIVE_KEEP:]
-    archive_name = f"bus_archive_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.jsonl"
-    archive_path = bus_path.with_name(archive_name)
-    tmp_path = bus_path.with_name(".bus.jsonl.tmp")
+    if line_count > MAX_LINES:
+        archive_lines = lines[:-ARCHIVE_KEEP]
+        keep_lines = lines[-ARCHIVE_KEEP:]
+        archive_name = f"bus_archive_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.jsonl"
+        archive_path = bus_path.with_name(archive_name)
+        tmp_path = bus_path.with_name(".bus.jsonl.tmp")
 
-    archive_path.write_text("\n".join(archive_lines) + "\n")
-    tmp_path.write_text("\n".join(keep_lines) + "\n")
-    tmp_path.replace(bus_path)
-    return (
-        f"Archived {len(archive_lines)} lines to {archive_path}. Retained {len(keep_lines)} lines."
-    )
+        archive_path.write_text("\n".join(archive_lines) + "\n")
+        tmp_path.write_text("\n".join(keep_lines) + "\n")
+        tmp_path.replace(bus_path)
+        return (
+            f"Archived {len(archive_lines)} lines to {archive_path}. "
+            f"Retained {len(keep_lines)} lines."
+        )
+
+    pct = int(line_count / MAX_LINES * 100)
+    if line_count > int(MAX_LINES * COMPACTION_WARN_AT):
+        return (
+            f"WARNING: Bus at {pct}% capacity ({line_count}/{MAX_LINES} lines). "
+            "Run adhd_archive to compact proactively."
+        )
+
+    return f"Bus has {line_count} lines ({pct}% capacity). No archive needed."
