@@ -30,7 +30,9 @@
     "adhd-17: Message signing — HMAC on each JSONL line (sign_message, verify_signature, adhd_verify_signature tool)",
     "adhd-20: Agent verification — Ed25519 cryptographic identity (generate_keypair, sign_challenge, verify_agent, identity proof in signin)",
     "adhd-21: Capability tokens — Ed25519-signed authorization claims (issue_token, verify_token, adhd_issue_token, adhd_verify_token, token enforcement on adhd_post/adhd_send)",
-    "adhd-22: Bus access control — read/write role enforcement via token scopes (required_scope, _check_access, ADHD_ENFORCE_ACCESS_CONTROL)"
+    "adhd-22: Bus access control — read/write role enforcement via token scopes (required_scope, _check_access, ADHD_ENFORCE_ACCESS_CONTROL)",
+    "adhd-23: Bus discovery — discover_buses() MCP tool (adhd_discover) scanning ADHD_BUS_PATH directories — PR #29",
+    "adhd-24: Cross-bus bridging — message forwarding between buses with bridge rules, loop prevention, auto-forwarding in adhd_post — PR #38"
   ],
   "in_progress": [],
   "pending": [
@@ -94,7 +96,7 @@
       "description": "Enable message forwarding between independent buses. Bridge rules define which message types/topics cross bus boundaries. Add adhd_bridge_register tool.",
       "kanban_status": "backlog",
       "priority": {"level": 3, "rpe_weight": 0.6, "value_score": 55},
-      "done": false,
+      "done": true,
       "dependencies": ["adhd-17", "adhd-23"]
     },
     {
