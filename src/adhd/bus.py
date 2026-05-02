@@ -27,23 +27,44 @@ from cryptography.hazmat.primitives.serialization import (
 logger = logging.getLogger(__name__)
 
 
+_CANONICAL_BASE = Path("/opt/brainxio/.brainxio/adhd")
+
+
 def _get_secret() -> str | None:
     """Return the shared HMAC secret if configured, or None if signing is disabled."""
     return os.environ.get("ADHD_BUS_SECRET") or None
+
+
+def _resolve_base_dir() -> Path:
+    """Return the base directory for ADHD bus storage.
+
+    Resolution order:
+    1. /opt/brainxio/.brainxio/adhd (canonical, preferred if it exists)
+    2. ADHD_BUS_PATH env var (explicit override)
+    3. ~/.brainxio/adhd (legacy default)
+    """
+    if _CANONICAL_BASE.is_dir():
+        return _CANONICAL_BASE
+    env_path = os.environ.get("ADHD_BUS_PATH")
+    if env_path:
+        return Path(env_path).expanduser()
+    return Path("~/.brainxio/adhd").expanduser()
 
 
 def resolve() -> Path:
     """Return the absolute path to the ADHD bus file.
 
     Path resolution order:
-    1. ADHD_BUS_PATH env var (storage directory prefix, default: ~/.brainxio/adhd/)
-    2. ADHD_BUS_SLUG env var (bus name, default: git toplevel basename)
-    3. Full path: {ADHD_BUS_PATH}/{ADHD_BUS_SLUG}/bus.jsonl
+    1. /opt/brainxio/.brainxio/adhd (canonical, preferred if it exists)
+    2. ADHD_BUS_PATH env var (storage directory prefix)
+    3. ~/.brainxio/adhd (legacy default)
+    Then: ADHD_BUS_SLUG env var (bus name, default: git toplevel basename)
+    Full path: {base_dir}/{ADHD_BUS_SLUG}/bus.jsonl
 
     When inside a git submodule, the parent project root is used instead of
     the submodule directory so the bus is shared across the workspace.
     """
-    base_dir = Path(os.environ.get("ADHD_BUS_PATH", "~/.brainxio/adhd")).expanduser()
+    base_dir = _resolve_base_dir()
 
     bus_name = os.environ.get("ADHD_BUS_SLUG")
     if not bus_name:
@@ -586,7 +607,7 @@ def reap_stale_heartbeats() -> list[dict[str, str]]:
 
 def _get_key_dir() -> Path:
     """Return the key storage directory, creating it if needed."""
-    base = Path(os.environ.get("ADHD_BUS_PATH", "~/.brainxio/adhd")).expanduser()
+    base = _resolve_base_dir()
     key_dir = base / "keys"
     key_dir.mkdir(parents=True, exist_ok=True)
     return key_dir
@@ -1472,7 +1493,7 @@ def discover_buses() -> list[dict[str, Any]]:
     Returns metadata for each discovered bus: slug, message count,
     last activity timestamp, and active agent count.
     """
-    base_dir = Path(os.environ.get("ADHD_BUS_PATH", "~/.brainxio/adhd")).expanduser()
+    base_dir = _resolve_base_dir()
     if not base_dir.exists():
         return []
 
@@ -1541,7 +1562,7 @@ BRIDGE_TOPIC = "bridge-rules"
 
 def resolve_bus_path(slug: str) -> Path:
     """Return the path to a bus file by its slug name."""
-    base_dir = Path(os.environ.get("ADHD_BUS_PATH", "~/.brainxio/adhd")).expanduser()
+    base_dir = _resolve_base_dir()
     bus_dir = base_dir / slug
     bus_dir.mkdir(parents=True, exist_ok=True)
     return bus_dir / "bus.jsonl"

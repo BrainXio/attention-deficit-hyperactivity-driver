@@ -16,8 +16,9 @@ def key_dir(tmp_path: Path) -> Path:
     """Set up a temporary key directory and patch ADHD_BUS_PATH."""
     kd = tmp_path / "keys"
     kd.mkdir(parents=True)
-    with patch.dict(os.environ, {"ADHD_BUS_PATH": str(tmp_path)}):
-        yield kd
+    with patch.object(bus, "_CANONICAL_BASE", tmp_path / "nonexistent"):
+        with patch.dict(os.environ, {"ADHD_BUS_PATH": str(tmp_path)}):
+            yield kd
 
 
 @pytest.fixture

@@ -67,8 +67,9 @@ def key_dir(tmp_path: Path) -> Path:
     """Set up a temporary key directory and patch ADHD_BUS_PATH."""
     kd = tmp_path / "keys"
     kd.mkdir(parents=True)
-    with patch.dict(os.environ, {"ADHD_BUS_PATH": str(tmp_path)}):
-        yield kd
+    with patch.object(bus, "_CANONICAL_BASE", tmp_path / "nonexistent"):
+        with patch.dict(os.environ, {"ADHD_BUS_PATH": str(tmp_path)}):
+            yield kd
 
 
 @pytest.fixture
@@ -665,6 +666,7 @@ async def test_adhd_discover(tmp_path: Path) -> None:
     with (
         patch.object(bus, "resolve", return_value=bus_file),
         patch.object(mcp_server_mod, "resolve", return_value=bus_file),
+        patch.object(bus, "_CANONICAL_BASE", tmp_path / "nonexistent"),
         patch.dict(os.environ, {"ADHD_BUS_PATH": str(tmp_path)}),
     ):
         bus.write_message(_sample_message())
