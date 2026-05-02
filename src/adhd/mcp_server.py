@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import sys
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -53,7 +54,6 @@ from adhd.bus import (
     subscribe,
     unregister_bridge,
     unregister_namespace,
-    unsubscribe,
     validate_bus,
     verify_agent,
     verify_signature,
@@ -85,12 +85,6 @@ mcp = FastMCP(
 # ---------------------------------------------------------------------------
 # Lifecycle tools
 # ---------------------------------------------------------------------------
-
-
-@mcp.tool()
-async def adhd_signin() -> str:
-    """Sign in to the ADHD coordination bus. Call once when your session starts."""
-    return signin()
 
 
 @mcp.tool()
@@ -633,6 +627,36 @@ async def adhd_noise_check() -> str:
 
 _read_pos: int = 0
 _subscribed_filters: dict[str, str] = {}
+_explicit_filters: dict[str, str] = {}
+_MANDATORY_FILTERS: dict[str, str] = {"recipient": "all"}
+
+
+def _matches_filters(msg: dict[str, Any], filters: dict[str, str]) -> bool:
+    """Check if a message matches the given filter set."""
+    payload = msg.get("payload", {})
+    for key, value in filters.items():
+        if key == "recipient":
+            if isinstance(payload, dict):
+                if payload.get("recipient") != value:
+                    return False
+            else:
+                return False
+        else:
+            if msg.get(key) != value:
+                return False
+    return True
+
+
+@mcp.tool()
+async def adhd_signin() -> str:
+    """Sign in to the ADHD coordination bus. Call once when your session starts."""
+    global _subscribed_filters, _explicit_filters, _read_pos
+    result = signin()
+    _explicit_filters = {}
+    _subscribed_filters = dict(_MANDATORY_FILTERS)
+    _read_pos = 0
+    subscribe(_MANDATORY_FILTERS)
+    return result
 
 
 @mcp.tool()
@@ -656,7 +680,7 @@ async def adhd_subscribe(
     err = _check_access(token, "read", "adhd_subscribe")
     if err:
         return err
-    global _subscribed_filters
+    global _subscribed_filters, _explicit_filters
     filters: dict[str, str] = {}
     if type:
         filters["type"] = type
@@ -666,16 +690,20 @@ async def adhd_subscribe(
         filters["recipient"] = recipient
     if not filters:
         return "ERROR: At least one filter (type, topic, recipient) is required."
-    _subscribed_filters = filters
-    return subscribe(filters)
+    _explicit_filters = filters
+    merged = {**_explicit_filters, **_MANDATORY_FILTERS}
+    _subscribed_filters = merged
+    return subscribe(merged)
 
 
 @mcp.tool()
 async def adhd_unsubscribe() -> str:
-    """Remove the current agent's subscription."""
-    global _subscribed_filters
-    _subscribed_filters = {}
-    return unsubscribe()
+    """Remove the current agent's explicit subscription, but keep mandatory 'all'."""
+    global _subscribed_filters, _explicit_filters
+    _explicit_filters = {}
+    _subscribed_filters = dict(_MANDATORY_FILTERS)
+    subscribe(_MANDATORY_FILTERS)
+    return "Unsubscribed."
 
 
 @mcp.tool()
@@ -692,19 +720,17 @@ async def adhd_poll(token: str = "") -> str:
     if err:
         return err
     global _read_pos
-    t = _subscribed_filters.get("type")
-    tp = _subscribed_filters.get("topic")
-    r = _subscribed_filters.get("recipient")
-    msgs, new_pos = read_messages_since(
-        _read_pos,
-        type_filter=t,
-        topic_filter=tp,
-        recipient_filter=r,
-    )
+    msgs, new_pos = read_messages_since(_read_pos)
     _read_pos = new_pos
-    if not msgs:
+    matching = [
+        msg
+        for msg in msgs
+        if (_explicit_filters and _matches_filters(msg, _explicit_filters))
+        or _matches_filters(msg, _MANDATORY_FILTERS)
+    ]
+    if not matching:
         return "[]"
-    return json.dumps(msgs, indent=2)
+    return json.dumps(matching, indent=2)
 
 
 @mcp.tool()
@@ -720,22 +746,19 @@ async def adhd_wait(timeout: float = 30.0) -> str:
     global _read_pos
     timeout = min(timeout, 120.0)
     deadline = asyncio.get_event_loop().time() + timeout
-    t = _subscribed_filters.get("type")
-    tp = _subscribed_filters.get("topic")
-    r = _subscribed_filters.get("recipient")
-
     while True:
         current_size = get_file_size()
         if current_size > _read_pos:
-            msgs, new_pos = read_messages_since(
-                _read_pos,
-                type_filter=t,
-                topic_filter=tp,
-                recipient_filter=r,
-            )
+            msgs, new_pos = read_messages_since(_read_pos)
             _read_pos = new_pos
-            if msgs:
-                return json.dumps(msgs, indent=2)
+            matching = [
+                msg
+                for msg in msgs
+                if (_explicit_filters and _matches_filters(msg, _explicit_filters))
+                or _matches_filters(msg, _MANDATORY_FILTERS)
+            ]
+            if matching:
+                return json.dumps(matching, indent=2)
             # File grew but no matching messages — update position and keep waiting
             _read_pos = current_size
 
