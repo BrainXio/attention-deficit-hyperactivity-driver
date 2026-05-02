@@ -49,6 +49,9 @@ from adhd.mcp_server import (
 def temp_bus(tmp_path: Path) -> Path:
     """Patch resolve() to use a temporary bus file."""
     bus_file = tmp_path / "bus.jsonl"
+    mcp_server_mod._read_pos = 0
+    mcp_server_mod._subscribed_filters = {}
+    mcp_server_mod._explicit_filters = {}
     with (
         patch.object(bus, "resolve", return_value=bus_file),
         patch.object(mcp_server_mod, "resolve", return_value=bus_file),
@@ -448,6 +451,64 @@ async def test_adhd_wait_timeout(temp_bus: Path) -> None:
     await adhd_subscribe(type="heartbeat")
     result = await adhd_wait(timeout=0.5)
     assert result == "[]"
+
+
+@pytest.mark.asyncio
+async def test_adhd_signin_auto_subscribes_all(temp_bus: Path) -> None:
+    result = await adhd_signin()
+    assert "Signed in" in result
+    subs = bus.get_subscriptions()
+    assert bus.agent_id() in subs
+    assert subs[bus.agent_id()]["recipient"] == "all"
+
+
+@pytest.mark.asyncio
+async def test_adhd_subscribe_merges_mandatory_all(temp_bus: Path) -> None:
+    await adhd_subscribe(type="status")
+    msgs = bus.read_messages(topic_filter="bus-subscriptions")
+    assert len(msgs) == 1
+    filters = msgs[0]["payload"]["filters"]
+    assert filters["type"] == "status"
+    assert filters["recipient"] == "all"
+
+
+@pytest.mark.asyncio
+async def test_adhd_unsubscribe_keeps_mandatory_all(temp_bus: Path) -> None:
+    await adhd_subscribe(type="status")
+    result = await adhd_unsubscribe()
+    assert "Unsubscribed" in result
+    subs = bus.get_subscriptions()
+    assert bus.agent_id() in subs
+    assert subs[bus.agent_id()] == {"recipient": "all"}
+
+
+@pytest.mark.asyncio
+async def test_adhd_poll_includes_mandatory_all(temp_bus: Path) -> None:
+    await adhd_subscribe(type="heartbeat")
+    # Send a broadcast message (recipient="all") with type "request"
+    await adhd_send(to="all", message="broadcast")
+    result = await adhd_poll()
+    assert "all" in result
+    assert "broadcast" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_poll_respects_explicit_filters(temp_bus: Path) -> None:
+    await adhd_subscribe(type="heartbeat")
+    # Post a status message without recipient="all" — should be filtered out
+    bus.post("status", "agent-activity", {"note": "ignore"})
+    result = await adhd_poll()
+    assert result == "[]"
+
+
+@pytest.mark.asyncio
+async def test_adhd_wait_includes_mandatory_all(temp_bus: Path) -> None:
+    await adhd_subscribe(type="heartbeat")
+    # Pre-populate a broadcast message
+    await adhd_send(to="all", message="wait-broadcast")
+    result = await adhd_wait(timeout=0.5)
+    assert "all" in result
+    assert "wait-broadcast" in result
 
 
 @pytest.mark.asyncio
