@@ -19,11 +19,13 @@ from adhd.bus import (
     check_mcp_change_status,
     check_noise_threshold,
     check_supporters,
+    claim_pr,
     create_snapshot,
     current_branch,
     discover_buses,
     forward_message,
     generate_keypair,
+    get_active_claims,
     get_bridge_rules,
     get_bridge_targets,
     get_decision_history,
@@ -47,6 +49,7 @@ from adhd.bus import (
     reap_stale_heartbeats,
     register_bridge,
     register_namespace,
+    release_pr,
     resolve,
     session_id,
     signin,
@@ -312,6 +315,54 @@ async def adhd_mcp_change_check() -> str:
         lines.append(
             f"  {s['server']} — by {s['agent_id']} "
             f"(session {s['session_id']}) since {s['timestamp']}"
+        )
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Merge-queue tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def adhd_merge_claim(pr_number: int) -> str:
+    """Claim a PR for merging.
+
+    Other supporters skip claimed PRs. Claims auto-expire after 5 minutes
+    to handle crashed agents.
+
+    Args:
+        pr_number: The PR number to claim.
+    """
+    return claim_pr(pr_number)
+
+
+@mcp.tool()
+async def adhd_merge_release(pr_number: int) -> str:
+    """Release a previously claimed PR.
+
+    Args:
+        pr_number: The PR number to release.
+    """
+    return release_pr(pr_number)
+
+
+@mcp.tool()
+async def adhd_merge_queue() -> str:
+    """Show active PR claims.
+
+    Returns a list of PRs with active claims that are not stale
+    (timestamp within the last 5 minutes).
+    """
+    claims = get_active_claims()
+    if not claims:
+        return "No active PR claims."
+
+    lines = [f"Active claims ({len(claims)}):"]
+    for c in claims:
+        lines.append(
+            f"  PR #{c['pr']} — claimed by {c['agent_id']} "
+            f"(session {c['session_id']}) at {c['timestamp']}"
         )
     return "\n".join(lines)
 
