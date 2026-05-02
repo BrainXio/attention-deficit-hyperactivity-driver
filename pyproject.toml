@@ -40,7 +40,7 @@ packages = ["src/adhd"]
 
 [dependency-groups]
 dev = [
-    "ruff>=0.15",
+    "ruff>=0.15.12",
     "mypy>=1.10",
     "pytest>=8.0",
     "pytest-cov>=7.1.0",
