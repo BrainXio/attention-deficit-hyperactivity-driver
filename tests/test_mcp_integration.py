@@ -23,6 +23,9 @@ from adhd.mcp_server import (
     adhd_mcp_change_check,
     adhd_mcp_change_prepare,
     adhd_mcp_change_ready,
+    adhd_merge_claim,
+    adhd_merge_queue,
+    adhd_merge_release,
     adhd_migrate_to_push,
     adhd_namespace_list,
     adhd_namespace_register,
@@ -239,6 +242,51 @@ async def test_adhd_post_rejects_protected_topic(temp_bus: Path) -> None:
     )
     assert "ERROR" in result
     assert "protected" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# Merge-queue tools
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_adhd_merge_claim(temp_bus: Path) -> None:
+    """Claiming a PR returns success message."""
+    result = await adhd_merge_claim(pr_number=42)
+    assert "Claimed PR #42" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_merge_release(temp_bus: Path) -> None:
+    """Releasing a claimed PR returns success message."""
+    await adhd_merge_claim(pr_number=42)
+    result = await adhd_merge_release(pr_number=42)
+    assert "Released claim on PR #42" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_merge_queue_empty(temp_bus: Path) -> None:
+    """Queue shows no active claims when bus is empty."""
+    result = await adhd_merge_queue()
+    assert "No active PR claims" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_merge_queue_with_claim(temp_bus: Path) -> None:
+    """Queue shows an active claim after claiming a PR."""
+    await adhd_merge_claim(pr_number=99)
+    result = await adhd_merge_queue()
+    assert "PR #99" in result
+    assert "claimed by" in result
+
+
+@pytest.mark.asyncio
+async def test_adhd_merge_queue_after_release(temp_bus: Path) -> None:
+    """Queue shows no active claims after release."""
+    await adhd_merge_claim(pr_number=7)
+    await adhd_merge_release(pr_number=7)
+    result = await adhd_merge_queue()
+    assert "No active PR claims" in result
 
 
 # ---------------------------------------------------------------------------
