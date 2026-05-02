@@ -168,12 +168,21 @@ def verify_signature(msg: dict[str, Any]) -> bool:
     return hmac.compare_digest(received_hmac, expected_hmac)
 
 
+_write_counter = 0
+
+
 def write_message(msg: dict[str, Any]) -> None:
-    """Append a message to the bus after signing and validating it."""
+    """Append a message to the bus after signing and validating it.
+
+    Automatically triggers compaction when the bus exceeds the size limit.
+    """
+    global _write_counter
     msg = sign_message(msg)
     bus_path = resolve()
     with bus_path.open("a") as f:
         f.write(json.dumps(msg, separators=(",", ":")) + "\n")
+    _write_counter += 1
+    _maybe_compact(bus_path)
 
 
 def read_messages(
@@ -1369,6 +1378,40 @@ def check_noise_threshold() -> str:
 MAX_LINES = 10_000
 ARCHIVE_KEEP = 2_000
 COMPACTION_WARN_AT = 0.8  # warn at 80% of MAX_LINES
+COMPACTION_CHECK_INTERVAL = 100  # Check compaction every N writes
+
+
+def _maybe_compact(bus_path: Path) -> None:
+    """Check and trigger compaction if needed.
+
+    Called after each write. Only checks every N writes to avoid excessive I/O.
+    """
+    if _write_counter % COMPACTION_CHECK_INTERVAL != 0:
+        return
+
+    if not bus_path.exists():
+        return
+
+    line_count = sum(1 for _ in bus_path.open())
+    if line_count > MAX_LINES:
+        _do_archive(bus_path)
+
+
+def _do_archive(bus_path: Path) -> None:
+    """Internal compaction logic — archives old messages, retains recent."""
+    lines = bus_path.read_text().splitlines()
+    line_count = len(lines)
+
+    if line_count > MAX_LINES:
+        archive_lines = lines[:-ARCHIVE_KEEP]
+        keep_lines = lines[-ARCHIVE_KEEP:]
+        archive_name = f"bus_archive_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.jsonl"
+        archive_path = bus_path.with_name(archive_name)
+        tmp_path = bus_path.with_name(".bus.jsonl.tmp")
+
+        archive_path.write_text("\n".join(archive_lines) + "\n")
+        tmp_path.write_text("\n".join(keep_lines) + "\n")
+        tmp_path.replace(bus_path)
 
 
 def archive() -> str:
