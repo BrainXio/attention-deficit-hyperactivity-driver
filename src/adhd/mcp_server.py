@@ -466,7 +466,8 @@ async def adhd_gen_key(agent_id: str) -> str:
     """Generate an Ed25519 keypair for the given agent.
 
     Persists PEM-encoded private key and raw-hex public key to
-    ``~/.brainxio/adhd/keys/``.  Run once per agent before signin.
+    ``/opt/brainxio/.brainxio/adhd/keys/`` (canonical) or ``~/.brainxio/adhd/keys/`` (fallback).
+    Run once per agent before signin.
     Returns the public-key hex.
     """
     return generate_keypair(agent_id)

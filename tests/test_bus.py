@@ -40,6 +40,48 @@ def temp_bus(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def test_resolve_base_dir_canonical(tmp_path: Path) -> None:
+    """Canonical /opt/brainxio/.brainxio/adhd path is preferred when it exists."""
+    canonical = tmp_path / "opt" / "brainxio" / ".brainxio" / "adhd"
+    canonical.mkdir(parents=True)
+    with patch.object(bus, "_CANONICAL_BASE", canonical):
+        assert bus._resolve_base_dir() == canonical
+
+
+def test_resolve_base_dir_env_var_fallback(tmp_path: Path) -> None:
+    """ADHD_BUS_PATH is used when canonical path doesn't exist."""
+    custom = tmp_path / "custom-adhd"
+    custom.mkdir()
+    with patch.object(bus, "_CANONICAL_BASE", tmp_path / "nonexistent"):
+        with patch.dict(os.environ, {"ADHD_BUS_PATH": str(custom)}):
+            assert bus._resolve_base_dir() == custom
+
+
+def test_resolve_base_dir_home_fallback(tmp_path: Path) -> None:
+    """Legacy ~/.brainxio/adhd is used when neither canonical nor env var exist."""
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    with patch.object(bus, "_CANONICAL_BASE", tmp_path / "nonexistent"):
+        with patch.dict(os.environ, {"HOME": str(fake_home)}, clear=False):
+            # Remove ADHD_BUS_PATH if set
+            env = {"HOME": str(fake_home)}
+            with patch.dict(os.environ, env, clear=True):
+                result = bus._resolve_base_dir()
+                assert str(result).endswith(".brainxio/adhd")
+
+
+def test_resolve_canonical_path(tmp_path: Path) -> None:
+    """resolve() uses canonical path when it exists."""
+    canonical = tmp_path / "opt" / "brainxio" / ".brainxio" / "adhd"
+    canonical.mkdir(parents=True)
+    with patch.object(bus, "_CANONICAL_BASE", canonical):
+        with patch.dict(os.environ, {"ADHD_BUS_SLUG": "projects"}):
+            result = bus.resolve()
+    expected = canonical / "projects" / "bus.jsonl"
+    assert result == expected
+    assert expected.parent.exists()
+
+
 def test_resolve_default(tmp_path: Path) -> None:
     fake_home = tmp_path / "home"
     fake_home.mkdir()
@@ -47,11 +89,12 @@ def test_resolve_default(tmp_path: Path) -> None:
     toplevel.mkdir()
 
     env = {"HOME": str(fake_home)}
-    with patch.dict(os.environ, env, clear=True):
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value.stdout = str(toplevel) + "\n"
-            mock_run.return_value.returncode = 0
-            result = bus.resolve()
+    with patch.object(bus, "_CANONICAL_BASE", tmp_path / "nonexistent"):
+        with patch.dict(os.environ, env, clear=True):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value.stdout = str(toplevel) + "\n"
+                mock_run.return_value.returncode = 0
+                result = bus.resolve()
 
     expected = fake_home / ".brainxio" / "adhd" / "my-project" / "bus.jsonl"
     assert result == expected
@@ -60,8 +103,9 @@ def test_resolve_default(tmp_path: Path) -> None:
 
 def test_resolve_adhd_bus_path_override(tmp_path: Path) -> None:
     custom_dir = tmp_path / "custom-store"
-    with patch.dict(os.environ, {"ADHD_BUS_PATH": str(custom_dir), "ADHD_BUS_SLUG": "mybus"}):
-        result = bus.resolve()
+    with patch.object(bus, "_CANONICAL_BASE", tmp_path / "nonexistent"):
+        with patch.dict(os.environ, {"ADHD_BUS_PATH": str(custom_dir), "ADHD_BUS_SLUG": "mybus"}):
+            result = bus.resolve()
     assert result == (custom_dir / "mybus" / "bus.jsonl").resolve()
 
 
@@ -69,8 +113,9 @@ def test_resolve_adhd_bus_slug(tmp_path: Path) -> None:
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     env = {"HOME": str(fake_home), "ADHD_BUS_SLUG": "projects"}
-    with patch.dict(os.environ, env, clear=True):
-        result = bus.resolve()
+    with patch.object(bus, "_CANONICAL_BASE", tmp_path / "nonexistent"):
+        with patch.dict(os.environ, env, clear=True):
+            result = bus.resolve()
     expected = fake_home / ".brainxio" / "adhd" / "projects" / "bus.jsonl"
     assert result == expected
 
@@ -79,9 +124,10 @@ def test_resolve_fallback_no_git(tmp_path: Path) -> None:
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     env = {"HOME": str(fake_home)}
-    with patch.dict(os.environ, env, clear=True):
-        with patch("subprocess.run", side_effect=subprocess.CalledProcessError(1, "git")):
-            result = bus.resolve()
+    with patch.object(bus, "_CANONICAL_BASE", tmp_path / "nonexistent"):
+        with patch.dict(os.environ, env, clear=True):
+            with patch("subprocess.run", side_effect=subprocess.CalledProcessError(1, "git")):
+                result = bus.resolve()
     expected = fake_home / ".brainxio" / "adhd" / "default" / "bus.jsonl"
     assert result == expected
 
@@ -105,9 +151,10 @@ def test_resolve_superproject(tmp_path: Path) -> None:
         return result
 
     env = {"HOME": str(fake_home)}
-    with patch.dict(os.environ, env, clear=True):
-        with patch("subprocess.run", side_effect=_mock_run):
-            result = bus.resolve()
+    with patch.object(bus, "_CANONICAL_BASE", tmp_path / "nonexistent"):
+        with patch.dict(os.environ, env, clear=True):
+            with patch("subprocess.run", side_effect=_mock_run):
+                result = bus.resolve()
     expected = fake_home / ".brainxio" / "adhd" / "workspace-root" / "bus.jsonl"
     assert result == expected
 
@@ -131,9 +178,10 @@ def test_resolve_superproject_empty_uses_toplevel(tmp_path: Path) -> None:
         return result
 
     env = {"HOME": str(fake_home)}
-    with patch.dict(os.environ, env, clear=True):
-        with patch("subprocess.run", side_effect=_mock_run):
-            result = bus.resolve()
+    with patch.object(bus, "_CANONICAL_BASE", tmp_path / "nonexistent"):
+        with patch.dict(os.environ, env, clear=True):
+            with patch("subprocess.run", side_effect=_mock_run):
+                result = bus.resolve()
     expected = fake_home / ".brainxio" / "adhd" / "my-project" / "bus.jsonl"
     assert result == expected
 
@@ -1246,8 +1294,9 @@ def test_create_snapshot_includes_subscriptions(temp_bus: Path) -> None:
 
 def test_discover_buses_empty(tmp_path: Path) -> None:
     """discover_buses returns empty list when no buses exist."""
-    with patch.dict(os.environ, {"ADHD_BUS_PATH": str(tmp_path / "nonexistent")}):
-        assert bus.discover_buses() == []
+    with patch.object(bus, "_CANONICAL_BASE", tmp_path / "nonexistent"):
+        with patch.dict(os.environ, {"ADHD_BUS_PATH": str(tmp_path / "nonexistent")}):
+            assert bus.discover_buses() == []
 
 
 def test_discover_buses_finds_channels(tmp_path: Path) -> None:
@@ -1260,8 +1309,9 @@ def test_discover_buses_finds_channels(tmp_path: Path) -> None:
         '{"timestamp":"2026-05-01T00:00:00Z","session_id":"s1","agent_id":"a1",'
         '"branch":"main","type":"signin","topic":"agent-lifecycle","payload":{}}\n'
     )
-    with patch.dict(os.environ, {"ADHD_BUS_PATH": str(store)}):
-        results = bus.discover_buses()
+    with patch.object(bus, "_CANONICAL_BASE", tmp_path / "nonexistent"):
+        with patch.dict(os.environ, {"ADHD_BUS_PATH": str(store)}):
+            results = bus.discover_buses()
     assert len(results) == 1
     assert results[0]["slug"] == "test-channel"
     assert results[0]["message_count"] == 1
@@ -1279,8 +1329,9 @@ def test_discover_buses_skips_directories_without_bus(tmp_path: Path) -> None:
         '{"timestamp":"2026-05-01T00:00:00Z","session_id":"s1","agent_id":"a1",'
         '"branch":"main","type":"signin","topic":"agent-lifecycle","payload":{}}\n'
     )
-    with patch.dict(os.environ, {"ADHD_BUS_PATH": str(store)}):
-        results = bus.discover_buses()
+    with patch.object(bus, "_CANONICAL_BASE", tmp_path / "nonexistent"):
+        with patch.dict(os.environ, {"ADHD_BUS_PATH": str(store)}):
+            results = bus.discover_buses()
     assert len(results) == 1
     assert results[0]["slug"] == "good-chan"
 
@@ -1296,8 +1347,9 @@ def test_discover_buses_sorted(tmp_path: Path) -> None:
             '{"timestamp":"2026-05-01T00:00:00Z","session_id":"s1","agent_id":"a1",'
             '"branch":"main","type":"signin","topic":"agent-lifecycle","payload":{}}\n'
         )
-    with patch.dict(os.environ, {"ADHD_BUS_PATH": str(store)}):
-        results = bus.discover_buses()
+    with patch.object(bus, "_CANONICAL_BASE", tmp_path / "nonexistent"):
+        with patch.dict(os.environ, {"ADHD_BUS_PATH": str(store)}):
+            results = bus.discover_buses()
     assert results[0]["slug"] == "a-chan"
     assert results[1]["slug"] == "z-chan"
 
